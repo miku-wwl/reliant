@@ -1,0 +1,25 @@
+# Normalize line endings so local (Windows) and CI (Linux) behave identically.
+* text=auto
+
+# Source, config and docs should always be LF - this is what dotnet format and
+# the Linux CI runner expect.
+*.cs text eol=lf
+*.csproj text eol=lf
+*.slnx text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.props text eol=lf
+*.targets text eol=lf
+*.ps1 text eol=lf
+*.sh text eol=lf
+
+# Binary files must never be normalized.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.dll binary
+*.pdb binary
