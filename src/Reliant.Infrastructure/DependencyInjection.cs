@@ -37,6 +37,7 @@ public static class DependencyInjection
         services.AddScoped<IProcessingAttemptRepository, ProcessingAttemptRepository>();
         services.AddScoped<IProviderReferenceRepository, ProviderReferenceRepository>();
         services.AddScoped<IReconciliationRepository, ReconciliationRepository>();
+        services.AddScoped<IOrphanProviderCallbackRepository, OrphanProviderCallbackRepository>();
 
         services.AddSingleton<IQueueAdapter, SqsQueueAdapter>();
         services.AddSingleton<IQueueMessagePublisher, QueueMessagePublisher>();

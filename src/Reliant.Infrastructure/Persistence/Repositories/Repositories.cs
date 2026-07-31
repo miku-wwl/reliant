@@ -12,6 +12,11 @@ public class ContributionRepository(ReliantDbContext db) : IContributionReposito
         return await db.Contributions.FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
     }
 
+    public async Task<Contribution?> GetByIdIgnoreTenantAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        return await db.Contributions.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
+    }
+
     public async Task<(List<Contribution> items, string? nextCursor)> ListAsync(int limit, string? cursor, CancellationToken cancellationToken = default)
     {
         var query = db.Contributions.OrderByDescending(c => c.CreatedAt).AsQueryable();

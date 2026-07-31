@@ -5,6 +5,7 @@ namespace Reliant.Application.Abstractions;
 public interface IContributionRepository
 {
     Task<Contribution?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<Contribution?> GetByIdIgnoreTenantAsync(Guid id, CancellationToken cancellationToken = default);
     Task<(List<Contribution> items, string? nextCursor)> ListAsync(int limit, string? cursor, CancellationToken cancellationToken = default);
     Task AddAsync(Contribution contribution, CancellationToken cancellationToken = default);
     Task UpdateAsync(Contribution contribution, CancellationToken cancellationToken = default);

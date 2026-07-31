@@ -63,17 +63,29 @@ public class ReconciliationTests : IClassFixture<PostgreSqlFixture>
 
         db.Set<Reliant.Domain.Entities.Organization>().Add(new Reliant.Domain.Entities.Organization
         {
-            Id = orgId, Name = "Test Org", Status = Reliant.Domain.Enums.OrganizationStatus.Active, Version = 0
+            Id = orgId,
+            Name = "Test Org",
+            Status = Reliant.Domain.Enums.OrganizationStatus.Active,
+            Version = 0
         });
         db.Set<Reliant.Domain.Entities.Campaign>().Add(new Reliant.Domain.Entities.Campaign
         {
-            Id = campaignId, OrganizationId = orgId, Name = "Test", Status = Reliant.Domain.Enums.CampaignStatus.Active, Version = 0
+            Id = campaignId,
+            OrganizationId = orgId,
+            Name = "Test",
+            Status = Reliant.Domain.Enums.CampaignStatus.Active,
+            Version = 0
         });
         db.Set<Reliant.Domain.Entities.Contribution>().Add(new Reliant.Domain.Entities.Contribution
         {
-            Id = contributionId, OrganizationId = orgId, CampaignId = campaignId,
-            ExternalReference = "TEST-001", Amount = 100m, Currency = "USD",
-            State = Reliant.Domain.Enums.ContributionState.Created, Version = 0
+            Id = contributionId,
+            OrganizationId = orgId,
+            CampaignId = campaignId,
+            ExternalReference = "TEST-001",
+            Amount = 100m,
+            Currency = "USD",
+            State = Reliant.Domain.Enums.ContributionState.Created,
+            Version = 0
         });
 
         TenantFilterAccessor.SetOrganizationId(orgId);

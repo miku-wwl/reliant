@@ -26,6 +26,15 @@ public class ProcessingAttemptRepository(ReliantDbContext db) : IProcessingAttem
             .ToListAsync(ct);
     }
 
+    public async Task<ProcessingAttempt?> GetLatestByIdempotencyKeyAsync(string providerIdempotencyKey, CancellationToken ct = default)
+    {
+        return await db.Set<ProcessingAttempt>()
+            .IgnoreQueryFilters()
+            .Where(x => x.ProviderIdempotencyKey == providerIdempotencyKey)
+            .OrderByDescending(x => x.AttemptNumber)
+            .FirstOrDefaultAsync(ct);
+    }
+
     public async Task AddAsync(ProcessingAttempt attempt, CancellationToken ct = default)
     {
         await db.Set<ProcessingAttempt>().AddAsync(attempt, ct);
@@ -41,9 +50,31 @@ public class ProviderReferenceRepository(ReliantDbContext db) : IProviderReferen
             .FirstOrDefaultAsync(x => x.ContributionId == contributionId, ct);
     }
 
+    public async Task<ProviderReference?> GetByReferenceAsync(string providerReference, CancellationToken ct = default)
+    {
+        return await db.Set<ProviderReference>()
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(x => x.Reference == providerReference, ct);
+    }
+
     public async Task AddAsync(ProviderReference reference, CancellationToken ct = default)
     {
         await db.Set<ProviderReference>().AddAsync(reference, ct);
+    }
+}
+
+public class OrphanProviderCallbackRepository(ReliantDbContext db) : IOrphanProviderCallbackRepository
+{
+    public async Task AddAsync(OrphanProviderCallback callback, CancellationToken ct = default)
+    {
+        await db.Set<OrphanProviderCallback>().AddAsync(callback, ct);
+    }
+
+    public async Task<OrphanProviderCallback?> GetByEventIdAsync(string providerName, string eventId, CancellationToken ct = default)
+    {
+        return await db.Set<OrphanProviderCallback>()
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(x => x.ProviderName == providerName && x.EventId == eventId, ct);
     }
 }
 

@@ -9,4 +9,18 @@ public class UnitOfWork(ReliantDbContext db) : IUnitOfWork
     {
         return db.SaveChangesAsync(cancellationToken);
     }
+
+    public async Task<bool> TrySaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+        catch (DbUpdateException)
+        {
+            // Unique constraint / concurrency conflict -> the unit was rolled back.
+            return false;
+        }
+    }
 }

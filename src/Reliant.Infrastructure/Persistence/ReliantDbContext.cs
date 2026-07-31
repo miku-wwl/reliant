@@ -22,6 +22,7 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
     public DbSet<ProcessingAttempt> ProcessingAttempts => Set<ProcessingAttempt>();
     public DbSet<ProviderReference> ProviderReferences => Set<ProviderReference>();
     public DbSet<ReconciliationRecord> ReconciliationRecords => Set<ReconciliationRecord>();
+    public DbSet<OrphanProviderCallback> OrphanProviderCallbacks => Set<OrphanProviderCallback>();
     public DbSet<Lease> Leases => Set<Lease>();
     public DbSet<Checkpoint> Checkpoints => Set<Checkpoint>();
     public DbSet<DeadLetterRecord> DeadLetterRecords => Set<DeadLetterRecord>();
@@ -242,6 +243,20 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.Resolution).HasMaxLength(256).IsRequired();
             e.Property(x => x.ResolvedBy).HasMaxLength(128);
             e.HasIndex(x => x.ContributionId);
+            e.HasQueryFilter(x => false);
+        });
+
+        modelBuilder.Entity<OrphanProviderCallback>(e =>
+        {
+            e.ToTable("orphan_provider_callbacks");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.ProviderName).HasMaxLength(64).IsRequired();
+            e.Property(x => x.EventId).HasMaxLength(128).IsRequired();
+            e.Property(x => x.ProviderReference).HasMaxLength(128);
+            e.Property(x => x.IdempotencyKey).HasMaxLength(128);
+            e.Property(x => x.Payload).IsRequired();
+            e.Property(x => x.Reason).HasMaxLength(500).IsRequired();
+            e.HasIndex(x => new { x.ProviderName, x.EventId }).IsUnique();
             e.HasQueryFilter(x => false);
         });
     }

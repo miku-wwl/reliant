@@ -24,13 +24,19 @@ public class DatabaseConstraintTests : IClassFixture<PostgreSqlFixture>
 
         db.Set<Reliant.Domain.Entities.Organization>().Add(new Reliant.Domain.Entities.Organization
         {
-            Id = orgId, Name = "Test", Status = Reliant.Domain.Enums.OrganizationStatus.Active, Version = 0
+            Id = orgId,
+            Name = "Test",
+            Status = Reliant.Domain.Enums.OrganizationStatus.Active,
+            Version = 0
         });
 
         db.Set<Reliant.Domain.Entities.IdempotencyRecord>().Add(new Reliant.Domain.Entities.IdempotencyRecord
         {
-            Id = Guid.NewGuid(), OrganizationId = orgId, IdempotencyKey = "key-1",
-            RequestHash = "hash", ExpiresAt = DateTime.UtcNow.AddHours(24)
+            Id = Guid.NewGuid(),
+            OrganizationId = orgId,
+            IdempotencyKey = "key-1",
+            RequestHash = "hash",
+            ExpiresAt = DateTime.UtcNow.AddHours(24)
         });
 
         TenantFilterAccessor.SetOrganizationId(orgId);
@@ -38,8 +44,11 @@ public class DatabaseConstraintTests : IClassFixture<PostgreSqlFixture>
 
         db.Set<Reliant.Domain.Entities.IdempotencyRecord>().Add(new Reliant.Domain.Entities.IdempotencyRecord
         {
-            Id = Guid.NewGuid(), OrganizationId = orgId, IdempotencyKey = "key-1",
-            RequestHash = "hash2", ExpiresAt = DateTime.UtcNow.AddHours(24)
+            Id = Guid.NewGuid(),
+            OrganizationId = orgId,
+            IdempotencyKey = "key-1",
+            RequestHash = "hash2",
+            ExpiresAt = DateTime.UtcNow.AddHours(24)
         });
 
         await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
@@ -63,7 +72,11 @@ public class DatabaseConstraintTests : IClassFixture<PostgreSqlFixture>
         var campaignA = Guid.NewGuid();
         db.Set<Reliant.Domain.Entities.Campaign>().Add(new Reliant.Domain.Entities.Campaign
         {
-            Id = campaignA, OrganizationId = orgA, Name = "Camp A", Status = Reliant.Domain.Enums.CampaignStatus.Active, Version = 0
+            Id = campaignA,
+            OrganizationId = orgA,
+            Name = "Camp A",
+            Status = Reliant.Domain.Enums.CampaignStatus.Active,
+            Version = 0
         });
 
         TenantFilterAccessor.SetOrganizationId(orgA);
@@ -85,7 +98,10 @@ public class DatabaseConstraintTests : IClassFixture<PostgreSqlFixture>
         var orgId = Guid.NewGuid();
         db.Set<Reliant.Domain.Entities.Organization>().Add(new Reliant.Domain.Entities.Organization
         {
-            Id = orgId, Name = "Test", Status = Reliant.Domain.Enums.OrganizationStatus.Active, Version = 1
+            Id = orgId,
+            Name = "Test",
+            Status = Reliant.Domain.Enums.OrganizationStatus.Active,
+            Version = 1
         });
 
         TenantFilterAccessor.SetOrganizationId(orgId);
