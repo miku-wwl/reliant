@@ -8,6 +8,7 @@ public class ProcessingAttempt
     public Guid ContributionId { get; set; }
     public Guid OrganizationId { get; set; }
     public int AttemptNumber { get; set; }
+    public string ProviderName { get; set; } = "Sandbox";
     public string ProviderIdempotencyKey { get; set; } = string.Empty;
     public string? ProviderReference { get; set; }
     public AttemptStatus Status { get; set; } = AttemptStatus.Pending;

@@ -70,13 +70,24 @@ public class SubmitToProviderHandler(
             ContributionId = request.ContributionId,
             OrganizationId = request.OrganizationId,
             AttemptNumber = attemptNumber,
+            ProviderName = ProviderName,
             ProviderIdempotencyKey = idempotencyKey,
             Status = AttemptStatus.Pending,
             RequestPayload = JsonSerializer.Serialize(new { request.Amount, request.Currency, request.ExternalReference }),
             StartedAt = DateTime.UtcNow
         };
         await attemptRepo.AddAsync(attempt, ct);
-        await unitOfWork.SaveChangesAsync(ct);
+
+        // Atomic attempt persistence: if a concurrent worker already persisted a
+        // same-numbered attempt for this contribution (UNIQUE(ContributionId,
+        // AttemptNumber)), this worker loses safely and defers instead of
+        // throwing; the redelivered message will observe the winner's reference.
+        if (!await unitOfWork.TrySaveChangesAsync(ct))
+        {
+            return new ProviderSubmissionResult(
+                AttemptStatus.Pending, null, null, "Concurrent submit already in progress",
+                ProviderSubmissionDisposition.DeferredBecauseCircuitOpen);
+        }
 
         try
         {

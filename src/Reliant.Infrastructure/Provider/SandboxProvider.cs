@@ -31,24 +31,48 @@ public class SandboxProvider : IProvider
 
     public Task<ProviderResult> SubmitAsync(ProviderRequest request, CancellationToken ct = default)
     {
+        // Fast path: existing operation -> idempotent replay.
         if (_byKey.TryGetValue(request.IdempotencyKey, out var existing))
         {
-            if (existing.Amount != request.Amount || existing.Currency != request.Currency)
-            {
-                return Task.FromResult(new ProviderResult(
-                    ProviderStatus.Failed, existing.ProviderReference,
-                    ErrorCategory.PermanentBusinessRejection,
-                    "Idempotency key conflict: different payload",
-                    null));
-            }
-
-            return Task.FromResult(new ProviderResult(
-                existing.Status, existing.ProviderReference, null,
-                "Idempotent replay", null));
+            return Task.FromResult(ReplayResult(request, existing));
         }
 
+        // Modes where the provider does NOT process the request: no operation is
+        // ever created, so the request can be safely retried later.
+        if (NoProcessModes.Contains(_mode))
+        {
+            return Task.FromResult(NoProcessResult(request));
+        }
+
+        // Atomic create-or-get: exactly one operation object is created per key,
+        // even under concurrent submission, so there can never be a second
+        // provider-side business effect for the same idempotency key.
+        var candidate = BuildOperation(request);
+        var operation = _byKey.GetOrAdd(request.IdempotencyKey, candidate);
+        var created = ReferenceEquals(operation, candidate);
+
+        if (created)
+        {
+            _byRef[operation.ProviderReference] = operation;
+            return Task.FromResult(FirstCallResult(request, operation));
+        }
+
+        // Lost the race - replay the operation that the winner created.
+        return Task.FromResult(ReplayResult(request, operation));
+    }
+
+    private static readonly HashSet<string> NoProcessModes = new(StringComparer.Ordinal)
+    {
+        "TimeoutBeforeProcessing",
+        "Error5xxBeforeProcessing",
+        "RateLimited",
+        "DefinitiveFailure"
+    };
+
+    private SandboxProviderOperation BuildOperation(ProviderRequest request)
+    {
         var reference = $"ref_{Guid.NewGuid():N}"[..20];
-        var operation = new SandboxProviderOperation
+        return new SandboxProviderOperation
         {
             IdempotencyKey = request.IdempotencyKey,
             ProviderReference = reference,
@@ -58,70 +82,75 @@ public class SandboxProvider : IProvider
             ExternalReference = request.Reference,
             CreatedAt = DateTime.UtcNow
         };
+    }
 
-        ProviderResult result;
-
+    private ProviderResult FirstCallResult(ProviderRequest request, SandboxProviderOperation operation)
+    {
         switch (_mode)
         {
-            case "Success":
-                _byKey[request.IdempotencyKey] = operation;
-                _byRef[reference] = operation;
-                result = new ProviderResult(ProviderStatus.Succeeded, reference, null, null,
-                    $"{{\"status\":\"succeeded\",\"reference\":\"{reference}\"}}");
-                break;
-
             case "ProcessedButResponseLost":
-                _byKey[request.IdempotencyKey] = operation;
-                _byRef[reference] = operation;
                 throw new TaskCanceledException("Simulated timeout after processing");
 
             case "ConnectionResetAfterProcessing":
-                _byKey[request.IdempotencyKey] = operation;
-                _byRef[reference] = operation;
                 throw new IOException("Simulated connection reset after processing");
 
             case "MalformedResponseAfterProcessing":
-                _byKey[request.IdempotencyKey] = operation;
-                _byRef[reference] = operation;
-                result = new ProviderResult(ProviderStatus.Succeeded, reference, null, null,
+                return new ProviderResult(ProviderStatus.Succeeded, operation.ProviderReference, null, null,
                     "<<<malformed>>>");
-                break;
 
+            case "PendingThenSuccess":
+                operation.Status = ProviderStatus.Pending;
+                return new ProviderResult(ProviderStatus.Pending, operation.ProviderReference, null,
+                    "Provider is processing", null);
+
+            default: // Success and anything unhandled
+                return new ProviderResult(ProviderStatus.Succeeded, operation.ProviderReference, null, null,
+                    $"{{\"status\":\"succeeded\",\"reference\":\"{operation.ProviderReference}\"}}");
+        }
+    }
+
+    private ProviderResult NoProcessResult(ProviderRequest request)
+    {
+        switch (_mode)
+        {
             case "TimeoutBeforeProcessing":
                 throw new TaskCanceledException("Simulated timeout before processing");
 
             case "Error5xxBeforeProcessing":
-                result = new ProviderResult(ProviderStatus.Failed, null, ErrorCategory.ServerError,
+                return new ProviderResult(ProviderStatus.Failed, null, ErrorCategory.ServerError,
                     "Simulated 500", "500 Internal Server Error");
-                break;
 
             case "RateLimited":
-                result = new ProviderResult(ProviderStatus.Failed, null, ErrorCategory.RateLimited,
+                return new ProviderResult(ProviderStatus.Failed, null, ErrorCategory.RateLimited,
                     "Simulated 429", "429 Too Many Requests");
-                break;
 
-            case "DefinitiveFailure":
-                result = new ProviderResult(ProviderStatus.Failed, null, ErrorCategory.PermanentBusinessRejection,
+            default: // DefinitiveFailure
+                return new ProviderResult(ProviderStatus.Failed, null, ErrorCategory.PermanentBusinessRejection,
                     "Provider rejected", "{\"status\":\"failed\",\"reason\":\"rejected\"}");
-                break;
+        }
+    }
 
-            case "PendingThenSuccess":
-                operation.Status = ProviderStatus.Pending;
-                _byKey[request.IdempotencyKey] = operation;
-                _byRef[reference] = operation;
-                result = new ProviderResult(ProviderStatus.Pending, reference, null,
-                    "Provider is processing", null);
-                break;
-
-            default:
-                _byKey[request.IdempotencyKey] = operation;
-                _byRef[reference] = operation;
-                result = new ProviderResult(ProviderStatus.Succeeded, reference, null, null,
-                    $"{{\"status\":\"succeeded\",\"reference\":\"{reference}\"}}");
-                break;
+    private ProviderResult ReplayResult(ProviderRequest request, SandboxProviderOperation existing)
+    {
+        // Same key but a different payload is an idempotency conflict - never
+        // silently reuse the earlier result.
+        if (existing.Amount != request.Amount || existing.Currency != request.Currency ||
+            existing.ExternalReference != request.Reference)
+        {
+            return new ProviderResult(
+                ProviderStatus.Failed, existing.ProviderReference,
+                ErrorCategory.PermanentBusinessRejection,
+                "Idempotency key conflict: different payload", null);
         }
 
-        return Task.FromResult(result);
+        if (_mode == "PendingThenSuccess" && existing.Status == ProviderStatus.Pending)
+        {
+            existing.Status = ProviderStatus.Succeeded;
+        }
+
+        return new ProviderResult(
+            existing.Status, existing.ProviderReference, null,
+            "Idempotent replay", null);
     }
 
     public Task<ProviderStatusResult> QueryStatusByReferenceAsync(string providerReference, CancellationToken ct = default)

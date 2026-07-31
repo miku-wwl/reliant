@@ -213,13 +213,15 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
         {
             e.ToTable("processing_attempts");
             e.HasKey(x => x.Id);
+            e.Property(x => x.ProviderName).HasMaxLength(64).IsRequired();
             e.Property(x => x.ProviderIdempotencyKey).HasMaxLength(128).IsRequired();
             e.Property(x => x.ProviderReference).HasMaxLength(128);
             e.Property(x => x.Status).HasConversion<int>();
             e.Property(x => x.ErrorCategory).HasConversion<int>();
             e.Property(x => x.ErrorMessage).HasMaxLength(2000);
             e.Property(x => x.RequestPayload).IsRequired();
-            e.HasIndex(x => x.ContributionId);
+            e.HasIndex(x => new { x.ContributionId, x.AttemptNumber }).IsUnique();
+            e.HasIndex(x => new { x.ProviderName, x.ProviderIdempotencyKey });
             e.HasQueryFilter(x => false);
         });
 
@@ -230,6 +232,7 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.Reference).HasMaxLength(128).IsRequired();
             e.Property(x => x.ProviderName).HasMaxLength(64).IsRequired();
             e.HasIndex(x => x.ContributionId).IsUnique();
+            e.HasIndex(x => new { x.ProviderName, x.Reference }).IsUnique();
             e.HasQueryFilter(x => x.OrganizationId == TenantFilterAccessor.CurrentOrganizationId);
         });
 
