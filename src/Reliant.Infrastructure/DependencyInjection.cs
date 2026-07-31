@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Reliant.Application.Abstractions;
 using Reliant.Infrastructure.Persistence;
 using Reliant.Infrastructure.Persistence.Repositories;
+using Reliant.Infrastructure.Queue;
 
 namespace Reliant.Infrastructure;
 
@@ -23,6 +24,16 @@ public static class DependencyInjection
         services.AddScoped<IIdempotencyRepository, IdempotencyRepository>();
         services.AddScoped<IStateTransitionRepository, StateTransitionRepository>();
         services.AddScoped<IAuditEventRepository, AuditEventRepository>();
+
+        services.AddScoped<IOutboxRepository, OutboxRepository>();
+        services.AddScoped<IInboxRepository, InboxRepository>();
+        services.AddScoped<IJobRunRepository, JobRunRepository>();
+        services.AddScoped<ILeaseRepository, LeaseRepository>();
+        services.AddScoped<IDeadLetterRepository, DeadLetterRepository>();
+        services.AddScoped<ICheckpointRepository, CheckpointRepository>();
+
+        services.AddSingleton<IQueueAdapter, SqsQueueAdapter>();
+        services.AddSingleton<IQueueMessagePublisher, QueueMessagePublisher>();
 
         return services;
     }

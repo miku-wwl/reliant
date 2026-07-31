@@ -3,6 +3,7 @@ using Reliant.Application.Dto;
 using Reliant.Domain.Entities;
 using Reliant.Domain.Enums;
 using MediatR;
+using System.Text.Json;
 
 namespace Reliant.Application.Contributions.Commands;
 
@@ -19,6 +20,7 @@ public class CreateContributionHandler(
     IIdempotencyRepository idempotencyRepository,
     IStateTransitionRepository stateTransitionRepository,
     IAuditEventRepository auditEventRepository,
+    IOutboxRepository outboxRepository,
     IUnitOfWork unitOfWork,
     ITenantContext tenantContext) : IRequestHandler<CreateContributionCommand, IdempotentResponse<ContributionResponse>>
 {
@@ -111,6 +113,19 @@ public class CreateContributionHandler(
         await idempotencyRepository.AddAsync(idempotencyRecord, cancellationToken);
         await stateTransitionRepository.AddAsync(stateTransition, cancellationToken);
         await auditEventRepository.AddAsync(auditEvent, cancellationToken);
+
+        var outboxMessage = new OutboxMessage
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = tenantContext.OrganizationId,
+            MessageType = "ContributionCreated",
+            Payload = JsonSerializer.Serialize(new { version = 1, contributionId = contribution.Id, organizationId = contribution.OrganizationId, campaignId = contribution.CampaignId, amount = contribution.Amount, currency = contribution.Currency }),
+            CorrelationId = tenantContext.CorrelationId ?? Guid.NewGuid().ToString(),
+            OccurredAt = DateTime.UtcNow,
+            Status = OutboxStatus.Pending,
+            Version = 0
+        };
+        await outboxRepository.AddAsync(outboxMessage, cancellationToken);
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
 

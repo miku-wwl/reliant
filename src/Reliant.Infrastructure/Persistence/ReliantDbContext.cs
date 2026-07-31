@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Reliant.Domain.Entities;
+using Reliant.Domain.Enums;
 
 namespace Reliant.Infrastructure.Persistence;
 
@@ -13,6 +14,14 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
     public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
     public DbSet<StateTransition> StateTransitions => Set<StateTransition>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
+    public DbSet<InboxMessage> InboxMessages => Set<InboxMessage>();
+    public DbSet<JobDefinition> JobDefinitions => Set<JobDefinition>();
+    public DbSet<JobRun> JobRuns => Set<JobRun>();
+    public DbSet<JobAttempt> JobAttempts => Set<JobAttempt>();
+    public DbSet<Lease> Leases => Set<Lease>();
+    public DbSet<Checkpoint> Checkpoints => Set<Checkpoint>();
+    public DbSet<DeadLetterRecord> DeadLetterRecords => Set<DeadLetterRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -98,6 +107,98 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.ChangedBy).HasMaxLength(128).IsRequired();
             e.Property(x => x.CorrelationId).HasMaxLength(128).IsRequired();
             e.HasIndex(x => new { x.OrganizationId, x.EntityType, x.EntityId });
+            e.HasQueryFilter(x => x.OrganizationId == TenantFilterAccessor.CurrentOrganizationId);
+        });
+
+        modelBuilder.Entity<OutboxMessage>(e =>
+        {
+            e.ToTable("outbox_messages");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.MessageType).HasMaxLength(128).IsRequired();
+            e.Property(x => x.Payload).IsRequired();
+            e.Property(x => x.CorrelationId).HasMaxLength(128).IsRequired();
+            e.Property(x => x.CausationId).HasMaxLength(128);
+            e.Property(x => x.Status).HasConversion<int>();
+            e.Property(x => x.Version).IsRowVersion();
+            e.HasIndex(x => new { x.Status, x.OccurredAt });
+            e.HasQueryFilter(x => x.OrganizationId == TenantFilterAccessor.CurrentOrganizationId);
+        });
+
+        modelBuilder.Entity<InboxMessage>(e =>
+        {
+            e.ToTable("inbox_messages");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.MessageId).HasMaxLength(128).IsRequired();
+            e.Property(x => x.MessageType).HasMaxLength(128).IsRequired();
+            e.Property(x => x.HandlerName).HasMaxLength(128).IsRequired();
+            e.Property(x => x.HandlerVersion).HasMaxLength(32).IsRequired();
+            e.Property(x => x.Status).HasConversion<int>();
+            e.HasIndex(x => x.MessageId).IsUnique();
+            e.HasQueryFilter(x => x.OrganizationId == TenantFilterAccessor.CurrentOrganizationId);
+        });
+
+        modelBuilder.Entity<JobDefinition>(e =>
+        {
+            e.ToTable("job_definitions");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(128).IsRequired();
+            e.Property(x => x.HandlerName).HasMaxLength(128).IsRequired();
+            e.Property(x => x.RetryPolicy).HasMaxLength(64).IsRequired();
+        });
+
+        modelBuilder.Entity<JobRun>(e =>
+        {
+            e.ToTable("job_runs");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.QueueUrl).HasMaxLength(512).IsRequired();
+            e.Property(x => x.MessageId).HasMaxLength(128).IsRequired();
+            e.Property(x => x.Payload).IsRequired();
+            e.Property(x => x.Status).HasConversion<int>();
+            e.Property(x => x.Version).IsRowVersion();
+            e.HasIndex(x => new { x.OrganizationId, x.Status });
+            e.HasQueryFilter(x => x.OrganizationId == TenantFilterAccessor.CurrentOrganizationId);
+        });
+
+        modelBuilder.Entity<JobAttempt>(e =>
+        {
+            e.ToTable("job_attempts");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.ErrorCategory).HasConversion<int>();
+            e.Property(x => x.ErrorMessage).HasMaxLength(2000);
+            e.HasIndex(x => x.JobRunId);
+            e.HasQueryFilter(x => false);
+        });
+
+        modelBuilder.Entity<Lease>(e =>
+        {
+            e.ToTable("leases");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.WorkerId).HasMaxLength(128).IsRequired();
+            e.HasIndex(x => x.ExpiresAt);
+            e.HasQueryFilter(x => false);
+        });
+
+        modelBuilder.Entity<Checkpoint>(e =>
+        {
+            e.ToTable("checkpoints");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Key).HasMaxLength(128).IsRequired();
+            e.Property(x => x.Value).HasMaxLength(2000).IsRequired();
+            e.HasIndex(x => new { x.JobRunId, x.Key }).IsUnique();
+            e.HasQueryFilter(x => false);
+        });
+
+        modelBuilder.Entity<DeadLetterRecord>(e =>
+        {
+            e.ToTable("dead_letter_records");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.OriginalMessageId).HasMaxLength(128).IsRequired();
+            e.Property(x => x.MessageType).HasMaxLength(128).IsRequired();
+            e.Property(x => x.Payload).IsRequired();
+            e.Property(x => x.ErrorCategory).HasConversion<int>();
+            e.Property(x => x.ErrorMessage).HasMaxLength(2000);
+            e.Property(x => x.Status).HasConversion<int>();
+            e.HasIndex(x => new { x.OrganizationId, x.Status });
             e.HasQueryFilter(x => x.OrganizationId == TenantFilterAccessor.CurrentOrganizationId);
         });
     }
