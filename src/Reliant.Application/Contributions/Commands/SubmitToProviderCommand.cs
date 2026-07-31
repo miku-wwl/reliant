@@ -17,18 +17,33 @@ public class SubmitToProviderHandler(
     IProviderReferenceRepository referenceRepo,
     IContributionRepository contributionRepo,
     IUnitOfWork unitOfWork,
-    CircuitBreaker circuitBreaker) : IRequestHandler<SubmitToProviderCommand, ProviderSubmissionResult>
+    CircuitBreaker circuitBreaker,
+    IProviderOperationKeyFactory keyFactory) : IRequestHandler<SubmitToProviderCommand, ProviderSubmissionResult>
 {
+    private const string ProviderName = "sandbox";
+
     public async Task<ProviderSubmissionResult> Handle(SubmitToProviderCommand request, CancellationToken ct)
     {
+        var existingRef = await referenceRepo.GetByContributionAsync(request.ContributionId, ct);
+        if (existingRef is not null)
+        {
+            return new ProviderSubmissionResult(AttemptStatus.Succeeded, existingRef.Reference, null, "Already has provider reference");
+        }
+
+        var existingAttempts = await attemptRepo.ListByContributionAsync(request.ContributionId, ct);
+        var succeededAttempt = existingAttempts.FirstOrDefault(a => a.Status == AttemptStatus.Succeeded);
+        if (succeededAttempt is not null)
+        {
+            return new ProviderSubmissionResult(AttemptStatus.Succeeded, succeededAttempt.ProviderReference, null, "Already succeeded");
+        }
+
         if (!circuitBreaker.CanExecute())
         {
             return new ProviderSubmissionResult(AttemptStatus.Failed, null, ErrorCategory.ServerError, "Circuit breaker is open");
         }
 
-        var latestAttempt = await attemptRepo.GetLatestByContributionAsync(request.ContributionId, ct);
-        var attemptNumber = (latestAttempt?.AttemptNumber ?? 0) + 1;
-        var idempotencyKey = $"{request.ContributionId}-{attemptNumber}";
+        var idempotencyKey = keyFactory.CreateContributionSubmitKey(request.OrganizationId, request.ContributionId, ProviderName);
+        var attemptNumber = (existingAttempts.MaxBy(a => a.AttemptNumber)?.AttemptNumber ?? 0) + 1;
 
         var attempt = new ProcessingAttempt
         {
@@ -42,6 +57,7 @@ public class SubmitToProviderHandler(
             StartedAt = DateTime.UtcNow
         };
         await attemptRepo.AddAsync(attempt, ct);
+        await unitOfWork.SaveChangesAsync(ct);
 
         try
         {

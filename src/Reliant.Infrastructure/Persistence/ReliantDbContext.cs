@@ -34,7 +34,7 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.HasKey(x => x.Id);
             e.Property(x => x.Name).HasMaxLength(200).IsRequired();
             e.Property(x => x.Status).HasConversion<int>();
-            e.Property(x => x.Version).IsRowVersion();
+            e.Property(x => x.Version).IsConcurrencyToken();
         });
 
         modelBuilder.Entity<User>(e =>
@@ -62,7 +62,7 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.Name).HasMaxLength(200).IsRequired();
             e.Property(x => x.Description).HasMaxLength(1000);
             e.Property(x => x.Status).HasConversion<int>();
-            e.Property(x => x.Version).IsRowVersion();
+            e.Property(x => x.Version).IsConcurrencyToken();
             e.HasQueryFilter(x => x.OrganizationId == TenantFilterAccessor.CurrentOrganizationId);
         });
 
@@ -74,8 +74,11 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.Amount).HasPrecision(18, 2);
             e.Property(x => x.Currency).HasMaxLength(3).IsRequired();
             e.Property(x => x.State).HasConversion<int>();
-            e.Property(x => x.Version).IsRowVersion();
+            e.Property(x => x.Version).IsConcurrencyToken();
+            e.Property(x => x.LastErrorCategory).HasConversion<int>();
+            e.Property(x => x.LastErrorMessage).HasMaxLength(2000);
             e.HasIndex(x => new { x.OrganizationId, x.CampaignId });
+            e.HasIndex(x => new { x.State, x.NextRetryAt });
             e.HasQueryFilter(x => x.OrganizationId == TenantFilterAccessor.CurrentOrganizationId);
         });
 
@@ -122,7 +125,7 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.CorrelationId).HasMaxLength(128).IsRequired();
             e.Property(x => x.CausationId).HasMaxLength(128);
             e.Property(x => x.Status).HasConversion<int>();
-            e.Property(x => x.Version).IsRowVersion();
+            e.Property(x => x.Version).IsConcurrencyToken();
             e.HasIndex(x => new { x.Status, x.OccurredAt });
             e.HasQueryFilter(x => x.OrganizationId == TenantFilterAccessor.CurrentOrganizationId);
         });
@@ -157,7 +160,7 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.MessageId).HasMaxLength(128).IsRequired();
             e.Property(x => x.Payload).IsRequired();
             e.Property(x => x.Status).HasConversion<int>();
-            e.Property(x => x.Version).IsRowVersion();
+            e.Property(x => x.Version).IsConcurrencyToken();
             e.HasIndex(x => new { x.OrganizationId, x.Status });
             e.HasQueryFilter(x => x.OrganizationId == TenantFilterAccessor.CurrentOrganizationId);
         });

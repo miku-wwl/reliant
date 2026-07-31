@@ -26,7 +26,8 @@ public record ProviderHealthResult(bool IsHealthy, string? Message);
 public interface IProvider
 {
     Task<ProviderResult> SubmitAsync(ProviderRequest request, CancellationToken ct = default);
-    Task<ProviderStatusResult> QueryStatusAsync(string providerReference, CancellationToken ct = default);
+    Task<ProviderStatusResult> QueryStatusByReferenceAsync(string providerReference, CancellationToken ct = default);
+    Task<ProviderStatusResult> QueryStatusByIdempotencyKeyAsync(string idempotencyKey, CancellationToken ct = default);
     Task<ProviderResult> CancelAsync(string providerReference, CancellationToken ct = default);
     Task<ProviderHealthResult> CheckHealthAsync(CancellationToken ct = default);
 }

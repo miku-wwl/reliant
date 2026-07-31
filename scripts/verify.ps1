@@ -72,6 +72,5 @@ if (-not $SkipIntegration) {
 } else {
     Write-Host "[6/6] Integration tests skipped" -ForegroundColor DarkGray
 }
-
 Write-Host ""
 Write-Host "=== All checks passed ===" -ForegroundColor Green

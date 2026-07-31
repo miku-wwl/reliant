@@ -5,6 +5,8 @@ obj/
 *.suo
 .vs/
 
+tmp/
+
 # Terraform
 *.tfstate
 *.tfstate.*

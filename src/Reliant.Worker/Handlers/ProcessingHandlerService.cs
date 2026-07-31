@@ -108,7 +108,25 @@ public class ProcessingHandlerService(
                         var submitResult = await sender.Send(new SubmitToProviderCommand(
                             contributionId, organizationId, amount, currency, contribution.ExternalReference), stoppingToken);
 
-                        if (submitResult.Status == AttemptStatus.Succeeded)
+                        var fromStateBeforeResult = contribution.State;
+                        var reloadedContribution = await contributionRepo.GetByIdAsync(contributionId, stoppingToken);
+                        if (reloadedContribution is null)
+                        {
+                            throw new InvalidOperationException("Contribution disappeared during processing");
+                        }
+
+                        if (reloadedContribution.State != fromStateBeforeResult)
+                        {
+                            logger.LogWarning("Contribution {ContributionId} state changed during provider call from {Before} to {After}, callback may have arrived first",
+                                contributionId, fromStateBeforeResult, reloadedContribution.State);
+                            contribution = reloadedContribution;
+                        }
+
+                        if (contribution.State == ContributionState.Succeeded)
+                        {
+                            logger.LogInformation("Contribution {ContributionId} already Succeeded (likely via callback), skipping state transition", contributionId);
+                        }
+                        else if (submitResult.Status == AttemptStatus.Succeeded)
                         {
                             contribution.TransitionTo(ContributionState.Succeeded, "Provider succeeded");
                             await stateTransitionRepo.AddAsync(new StateTransition
@@ -137,14 +155,19 @@ public class ProcessingHandlerService(
                         }
                         else
                         {
-                            if (RetryPolicy.ShouldRetry(1, submitResult.ErrorCategory))
+                            if (RetryPolicy.ShouldRetry(contribution.RetryCount + 1, submitResult.ErrorCategory))
                             {
+                                var fromState = contribution.State;
+                                contribution.RetryCount++;
+                                contribution.LastErrorCategory = submitResult.ErrorCategory;
+                                contribution.LastErrorMessage = submitResult.ErrorMessage;
+                                contribution.NextRetryAt = DateTime.UtcNow.Add(RetryPolicy.GetDelay(contribution.RetryCount));
                                 contribution.TransitionTo(ContributionState.RetryPending, "Retryable failure");
                                 await stateTransitionRepo.AddAsync(new StateTransition
                                 {
                                     Id = Guid.NewGuid(),
                                     ContributionId = contributionId,
-                                    FromState = ContributionState.Processing,
+                                    FromState = fromState,
                                     ToState = ContributionState.RetryPending,
                                     Reason = $"Retryable: {submitResult.ErrorMessage}",
                                     ChangedBy = workerId
@@ -152,12 +175,13 @@ public class ProcessingHandlerService(
                             }
                             else
                             {
+                                var fromState = contribution.State;
                                 contribution.TransitionTo(ContributionState.Failed, "Permanent failure");
                                 await stateTransitionRepo.AddAsync(new StateTransition
                                 {
                                     Id = Guid.NewGuid(),
                                     ContributionId = contributionId,
-                                    FromState = ContributionState.Processing,
+                                    FromState = fromState,
                                     ToState = ContributionState.Failed,
                                     Reason = $"Permanent: {submitResult.ErrorMessage}",
                                     ChangedBy = workerId

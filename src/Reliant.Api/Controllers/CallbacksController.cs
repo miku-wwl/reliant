@@ -1,13 +1,17 @@
 using Microsoft.AspNetCore.Mvc;
 using MediatR;
+using Reliant.Application.Abstractions;
+using Reliant.Application.Contributions.Commands;
 using System.Text.Json;
-using Reliant.Infrastructure.Provider;
 
 namespace Reliant.Api.Controllers;
 
 [ApiController]
 [Route("api/callbacks")]
-public class CallbacksController(ISender sender, SandboxProvider provider, ILogger<CallbacksController> logger) : ControllerBase
+public class CallbacksController(
+    IProviderCallbackVerifier verifier,
+    ISender sender,
+    ILogger<CallbacksController> logger) : ControllerBase
 {
     [HttpPost("provider")]
     public async Task<IActionResult> HandleCallback(CancellationToken ct)
@@ -20,22 +24,42 @@ public class CallbacksController(ISender sender, SandboxProvider provider, ILogg
 
         if (string.IsNullOrEmpty(signature) || string.IsNullOrEmpty(timestamp))
         {
-            return Unauthorized(new ProblemDetails { Title = "Missing signature", Status = 401 });
+            return Unauthorized(new ProblemDetails { Title = "Missing signature or timestamp", Status = 401 });
         }
 
-        if (!provider.ValidateSignature(signature, timestamp, payload))
+        var verification = verifier.Verify(signature, timestamp, payload);
+        if (!verification.IsValid)
         {
-            logger.LogWarning("Invalid callback signature");
-            return Unauthorized(new ProblemDetails { Title = "Invalid signature", Status = 401 });
+            logger.LogWarning("Callback verification failed: {Error}", verification.Error);
+            return Unauthorized(new ProblemDetails { Title = verification.Error ?? "Verification failed", Status = 401 });
         }
 
-        if (DateTime.TryParse(timestamp, out var ts) && DateTime.UtcNow - ts > TimeSpan.FromMinutes(5))
+        ProviderCallbackPayload? callbackPayload;
+        try
         {
-            return BadRequest(new ProblemDetails { Title = "Expired callback", Status = 400 });
+            callbackPayload = JsonSerializer.Deserialize<ProviderCallbackPayload>(payload, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+        }
+        catch (JsonException ex)
+        {
+            logger.LogWarning(ex, "Failed to parse callback payload");
+            return BadRequest(new ProblemDetails { Title = "Invalid payload", Status = 400 });
         }
 
-        logger.LogInformation("Callback received and validated");
+        if (callbackPayload is null)
+        {
+            return BadRequest(new ProblemDetails { Title = "Empty payload", Status = 400 });
+        }
 
-        return Ok();
+        var result = await sender.Send(new HandleProviderCallbackCommand(callbackPayload), ct);
+
+        return result.StatusCode switch
+        {
+            200 => Ok(new { message = result.Message }),
+            400 => BadRequest(new ProblemDetails { Title = result.Message, Status = 400 }),
+            _ => StatusCode(result.StatusCode, new ProblemDetails { Title = result.Message, Status = result.StatusCode })
+        };
     }
 }

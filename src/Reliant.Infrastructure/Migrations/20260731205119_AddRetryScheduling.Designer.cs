@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Reliant.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using Reliant.Infrastructure.Persistence;
 namespace Reliant.Infrastructure.Migrations
 {
     [DbContext(typeof(ReliantDbContext))]
-    partial class ReliantDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260731205119_AddRetryScheduling")]
+    partial class AddRetryScheduling
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -102,6 +105,7 @@ namespace Reliant.Infrastructure.Migrations
 
                     b.Property<int>("Version")
                         .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
@@ -189,6 +193,7 @@ namespace Reliant.Infrastructure.Migrations
 
                     b.Property<int>("Version")
                         .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
@@ -450,6 +455,7 @@ namespace Reliant.Infrastructure.Migrations
 
                     b.Property<int>("Version")
                         .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
@@ -546,6 +552,7 @@ namespace Reliant.Infrastructure.Migrations
 
                     b.Property<int>("Version")
                         .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
@@ -594,6 +601,7 @@ namespace Reliant.Infrastructure.Migrations
 
                     b.Property<int>("Version")
                         .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("integer");
 
                     b.HasKey("Id");

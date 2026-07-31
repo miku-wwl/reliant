@@ -1,18 +1,27 @@
 using Microsoft.Extensions.Configuration;
 using Reliant.Application.Abstractions;
 using Reliant.Domain.Enums;
-using System.Security.Cryptography;
-using System.Text;
+using System.Collections.Concurrent;
 
 namespace Reliant.Infrastructure.Provider;
+
+public sealed class SandboxProviderOperation
+{
+    public required string IdempotencyKey { get; init; }
+    public required string ProviderReference { get; init; }
+    public required ProviderStatus Status { get; set; }
+    public required decimal Amount { get; init; }
+    public required string Currency { get; init; }
+    public required string ExternalReference { get; init; }
+    public DateTime CreatedAt { get; init; }
+}
 
 public class SandboxProvider : IProvider
 {
     private readonly string _secret;
     private readonly string _mode;
-    private readonly Dictionary<string, ProviderStatus> _referenceStore = new();
-    private readonly Dictionary<string, string> _idempotencyStore = new();
-    private readonly object _lock = new();
+    private readonly ConcurrentDictionary<string, SandboxProviderOperation> _byKey = new();
+    private readonly ConcurrentDictionary<string, SandboxProviderOperation> _byRef = new();
 
     public SandboxProvider(IConfiguration configuration)
     {
@@ -22,63 +31,138 @@ public class SandboxProvider : IProvider
 
     public Task<ProviderResult> SubmitAsync(ProviderRequest request, CancellationToken ct = default)
     {
-        lock (_lock)
+        if (_byKey.TryGetValue(request.IdempotencyKey, out var existing))
         {
-            if (_idempotencyStore.TryGetValue(request.IdempotencyKey, out var existingRef))
+            if (existing.Amount != request.Amount || existing.Currency != request.Currency)
             {
                 return Task.FromResult(new ProviderResult(
-                    ProviderStatus.Succeeded,
-                    existingRef,
-                    null,
-                    "Idempotent replay",
+                    ProviderStatus.Failed, existing.ProviderReference,
+                    ErrorCategory.PermanentBusinessRejection,
+                    "Idempotency key conflict: different payload",
                     null));
             }
 
-            var result = _mode switch
-            {
-                "Success" => CreateSuccess(request),
-                "Timeout" => throw new TaskCanceledException("Simulated timeout"),
-                "Error5xx" => new ProviderResult(ProviderStatus.Failed, null, ErrorCategory.ServerError, "Simulated 500", "500 Internal Server Error"),
-                "Error429" => new ProviderResult(ProviderStatus.Failed, null, ErrorCategory.RateLimited, "Simulated 429", "429 Too Many Requests"),
-                "SlowResponse" => Task.Delay(35000, ct).ContinueWith(_ => CreateSuccess(request), ct).Result,
-                _ => CreateSuccess(request)
-            };
-
-            if (result.Status == ProviderStatus.Succeeded && result.ProviderReference is not null)
-            {
-                _idempotencyStore[request.IdempotencyKey] = result.ProviderReference;
-                _referenceStore[result.ProviderReference] = ProviderStatus.Succeeded;
-            }
-
-            return Task.FromResult(result);
+            return Task.FromResult(new ProviderResult(
+                existing.Status, existing.ProviderReference, null,
+                "Idempotent replay", null));
         }
+
+        var reference = $"ref_{Guid.NewGuid():N}"[..20];
+        var operation = new SandboxProviderOperation
+        {
+            IdempotencyKey = request.IdempotencyKey,
+            ProviderReference = reference,
+            Status = ProviderStatus.Succeeded,
+            Amount = request.Amount,
+            Currency = request.Currency,
+            ExternalReference = request.Reference,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        ProviderResult result;
+
+        switch (_mode)
+        {
+            case "Success":
+                _byKey[request.IdempotencyKey] = operation;
+                _byRef[reference] = operation;
+                result = new ProviderResult(ProviderStatus.Succeeded, reference, null, null,
+                    $"{{\"status\":\"succeeded\",\"reference\":\"{reference}\"}}");
+                break;
+
+            case "ProcessedButResponseLost":
+                _byKey[request.IdempotencyKey] = operation;
+                _byRef[reference] = operation;
+                throw new TaskCanceledException("Simulated timeout after processing");
+
+            case "ConnectionResetAfterProcessing":
+                _byKey[request.IdempotencyKey] = operation;
+                _byRef[reference] = operation;
+                throw new IOException("Simulated connection reset after processing");
+
+            case "MalformedResponseAfterProcessing":
+                _byKey[request.IdempotencyKey] = operation;
+                _byRef[reference] = operation;
+                result = new ProviderResult(ProviderStatus.Succeeded, reference, null, null,
+                    "<<<malformed>>>");
+                break;
+
+            case "TimeoutBeforeProcessing":
+                throw new TaskCanceledException("Simulated timeout before processing");
+
+            case "Error5xxBeforeProcessing":
+                result = new ProviderResult(ProviderStatus.Failed, null, ErrorCategory.ServerError,
+                    "Simulated 500", "500 Internal Server Error");
+                break;
+
+            case "RateLimited":
+                result = new ProviderResult(ProviderStatus.Failed, null, ErrorCategory.RateLimited,
+                    "Simulated 429", "429 Too Many Requests");
+                break;
+
+            case "DefinitiveFailure":
+                result = new ProviderResult(ProviderStatus.Failed, null, ErrorCategory.PermanentBusinessRejection,
+                    "Provider rejected", "{\"status\":\"failed\",\"reason\":\"rejected\"}");
+                break;
+
+            case "PendingThenSuccess":
+                operation.Status = ProviderStatus.Pending;
+                _byKey[request.IdempotencyKey] = operation;
+                _byRef[reference] = operation;
+                result = new ProviderResult(ProviderStatus.Pending, reference, null,
+                    "Provider is processing", null);
+                break;
+
+            default:
+                _byKey[request.IdempotencyKey] = operation;
+                _byRef[reference] = operation;
+                result = new ProviderResult(ProviderStatus.Succeeded, reference, null, null,
+                    $"{{\"status\":\"succeeded\",\"reference\":\"{reference}\"}}");
+                break;
+        }
+
+        return Task.FromResult(result);
     }
 
-    public Task<ProviderStatusResult> QueryStatusAsync(string providerReference, CancellationToken ct = default)
+    public Task<ProviderStatusResult> QueryStatusByReferenceAsync(string providerReference, CancellationToken ct = default)
     {
-        lock (_lock)
+        if (_byRef.TryGetValue(providerReference, out var op))
         {
-            if (_referenceStore.TryGetValue(providerReference, out var status))
+            if (_mode == "PendingThenSuccess" && op.Status == ProviderStatus.Pending)
             {
-                return Task.FromResult(new ProviderStatusResult(status, providerReference, null));
+                op.Status = ProviderStatus.Succeeded;
             }
 
-            return Task.FromResult(new ProviderStatusResult(ProviderStatus.NotFound, null, "Reference not found"));
+            return Task.FromResult(new ProviderStatusResult(op.Status, op.ProviderReference, null));
         }
+
+        return Task.FromResult(new ProviderStatusResult(ProviderStatus.NotFound, null, "Reference not found"));
+    }
+
+    public Task<ProviderStatusResult> QueryStatusByIdempotencyKeyAsync(string idempotencyKey, CancellationToken ct = default)
+    {
+        if (_byKey.TryGetValue(idempotencyKey, out var op))
+        {
+            if (_mode == "PendingThenSuccess" && op.Status == ProviderStatus.Pending)
+            {
+                op.Status = ProviderStatus.Succeeded;
+            }
+
+            return Task.FromResult(new ProviderStatusResult(op.Status, op.ProviderReference, null));
+        }
+
+        return Task.FromResult(new ProviderStatusResult(ProviderStatus.NotFound, null, "Key not found"));
     }
 
     public Task<ProviderResult> CancelAsync(string providerReference, CancellationToken ct = default)
     {
-        lock (_lock)
+        if (_byRef.TryGetValue(providerReference, out var op))
         {
-            if (_referenceStore.ContainsKey(providerReference))
-            {
-                _referenceStore[providerReference] = ProviderStatus.Failed;
-                return Task.FromResult(new ProviderResult(ProviderStatus.Failed, providerReference, null, "Cancelled", null));
-            }
-
-            return Task.FromResult(new ProviderResult(ProviderStatus.NotFound, null, ErrorCategory.ValidationFailure, "Reference not found", null));
+            op.Status = ProviderStatus.Failed;
+            return Task.FromResult(new ProviderResult(ProviderStatus.Failed, providerReference, null, "Cancelled", null));
         }
+
+        return Task.FromResult(new ProviderResult(ProviderStatus.NotFound, null, ErrorCategory.ValidationFailure, "Reference not found", null));
     }
 
     public Task<ProviderHealthResult> CheckHealthAsync(CancellationToken ct = default)
@@ -86,23 +170,21 @@ public class SandboxProvider : IProvider
         return Task.FromResult(new ProviderHealthResult(true, "Sandbox provider is healthy"));
     }
 
+    public int OperationCount => _byKey.Count;
+
     public string ComputeSignature(string timestamp, string payload)
     {
-        var data = Encoding.UTF8.GetBytes(timestamp + payload);
-        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(_secret));
+        var data = System.Text.Encoding.UTF8.GetBytes(timestamp + payload);
+        using var hmac = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(_secret));
         var hash = hmac.ComputeHash(data);
-        return Convert.ToHexString(hash).ToLowerInvariant();
+        return System.Convert.ToHexString(hash).ToLowerInvariant();
     }
 
     public bool ValidateSignature(string signature, string timestamp, string payload)
     {
         var expected = ComputeSignature(timestamp, payload);
-        return signature == expected;
-    }
-
-    private static ProviderResult CreateSuccess(ProviderRequest request)
-    {
-        var reference = $"ref_{Guid.NewGuid():N}"[..20];
-        return new ProviderResult(ProviderStatus.Succeeded, reference, null, null, $"{{\"status\":\"succeeded\",\"reference\":\"{reference}\"}}");
+        var expectedBytes = System.Text.Encoding.UTF8.GetBytes(expected);
+        var actualBytes = System.Text.Encoding.UTF8.GetBytes(signature);
+        return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(actualBytes, expectedBytes);
     }
 }

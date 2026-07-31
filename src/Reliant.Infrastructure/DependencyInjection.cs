@@ -42,6 +42,8 @@ public static class DependencyInjection
         services.AddSingleton<IQueueMessagePublisher, QueueMessagePublisher>();
         services.AddSingleton<IProvider, SandboxProvider>();
         services.AddSingleton<CircuitBreaker>();
+        services.AddSingleton<IProviderOperationKeyFactory, ProviderOperationKeyFactory>();
+        services.AddSingleton<IProviderCallbackVerifier, ProviderCallbackVerifier>();
 
         return services;
     }

@@ -17,6 +17,7 @@ public class ContributionStateMachineTests
     [InlineData(ContributionState.ProviderUnknown, ContributionState.ReconciliationPending)]
     [InlineData(ContributionState.ReconciliationPending, ContributionState.Succeeded)]
     [InlineData(ContributionState.ReconciliationPending, ContributionState.Failed)]
+    [InlineData(ContributionState.ReconciliationPending, ContributionState.RetryPending)]
     [InlineData(ContributionState.Succeeded, ContributionState.ReceiptPending)]
     [InlineData(ContributionState.ReceiptPending, ContributionState.Completed)]
     public void ValidTransition_ShouldReturnTrue(ContributionState from, ContributionState to)

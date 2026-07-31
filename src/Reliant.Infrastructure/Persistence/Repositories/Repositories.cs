@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Reliant.Application.Abstractions;
 using Reliant.Domain.Entities;
+using Reliant.Domain.Enums;
 
 namespace Reliant.Infrastructure.Persistence.Repositories;
 
@@ -45,6 +46,16 @@ public class ContributionRepository(ReliantDbContext db) : IContributionReposito
     {
         db.Contributions.Update(contribution);
         await Task.CompletedTask;
+    }
+
+    public async Task<List<Contribution>> GetRetryDueAsync(int limit, CancellationToken cancellationToken = default)
+    {
+        return await db.Contributions
+            .IgnoreQueryFilters()
+            .Where(c => c.State == ContributionState.RetryPending && c.NextRetryAt != null && c.NextRetryAt <= DateTime.UtcNow)
+            .OrderBy(c => c.NextRetryAt)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
     }
 }
 
