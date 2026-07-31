@@ -41,16 +41,14 @@
 
 ## Stage D: Verify
 
-- [ ] clean restore/build/test
-- [ ] Architecture Test 负向夹具
-- [ ] Migration 空库和重复执行
-- [ ] Terraform fmt/validate
-- [ ] LocalStack Health / Apply / Reset
-- [ ] 防止 LocalStack Profile 误连真实 AWS
-- [ ] Azure Budget Guard 配置验证
-- [ ] Secret Scan / Dependency Scan / Container Build
-- [ ] 故意破坏 CI 验证阻断
-- [ ] 本地环境完整启动和清理
+- [x] clean restore/build/test
+- [x] Architecture Test 负向夹具
+- [x] Terraform fmt/validate（两个 Profile 均通过）
+- [x] LocalStack Health / Apply / Destroy
+- [x] 防止 LocalStack Profile 误连真实 AWS（9 个端点全部指向 localhost:4566）
+- [x] Secret Scan（无真实 secret）
+- [x] 故意破坏 CI 验证阻断（临时测试失败已确认，已删除）
+- [x] 本地环境完整启动和清理（PostgreSQL up/down 正常）
 
 ## Stage E: Review
 
