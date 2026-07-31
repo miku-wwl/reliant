@@ -32,9 +32,11 @@ public class SubmitToProviderHandler(
     IContributionRepository contributionRepo,
     IUnitOfWork unitOfWork,
     CircuitBreaker circuitBreaker,
-    IProviderOperationKeyFactory keyFactory) : IRequestHandler<SubmitToProviderCommand, ProviderSubmissionResult>
+    IProviderOperationKeyFactory keyFactory,
+    IWorkerFaultInjector? faultInjector = null) : IRequestHandler<SubmitToProviderCommand, ProviderSubmissionResult>
 {
     private const string ProviderName = "sandbox";
+    private readonly IWorkerFaultInjector _faultInjector = faultInjector ?? new NoopWorkerFaultInjector();
 
     public async Task<ProviderSubmissionResult> Handle(SubmitToProviderCommand request, CancellationToken ct)
     {
@@ -76,6 +78,8 @@ public class SubmitToProviderHandler(
             RequestPayload = JsonSerializer.Serialize(new { request.Amount, request.Currency, request.ExternalReference }),
             StartedAt = DateTime.UtcNow
         };
+
+        _faultInjector.Inject(WorkerFaultPoint.BeforeAttemptPersisted, request.ContributionId.ToString());
         await attemptRepo.AddAsync(attempt, ct);
 
         // Atomic attempt persistence: if a concurrent worker already persisted a
@@ -89,6 +93,9 @@ public class SubmitToProviderHandler(
                 ProviderSubmissionDisposition.DeferredBecauseCircuitOpen);
         }
 
+        // Evidence of the pending attempt is durable BEFORE the provider is called.
+        _faultInjector.Inject(WorkerFaultPoint.AfterAttemptPersisted, request.ContributionId.ToString());
+
         try
         {
             var providerRequest = new ProviderRequest(
@@ -98,6 +105,9 @@ public class SubmitToProviderHandler(
                 request.ExternalReference);
 
             var result = await provider.SubmitAsync(providerRequest, ct);
+
+            _faultInjector.Inject(WorkerFaultPoint.AfterProviderProcessed, request.ContributionId.ToString());
+            _faultInjector.Inject(WorkerFaultPoint.BeforeProviderResponseHandled, request.ContributionId.ToString());
 
             attempt.ResponsePayload = result.RawResponse;
             attempt.CompletedAt = DateTime.UtcNow;

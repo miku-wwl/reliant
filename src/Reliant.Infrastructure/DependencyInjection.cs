@@ -45,6 +45,7 @@ public static class DependencyInjection
         services.AddSingleton<CircuitBreaker>();
         services.AddSingleton<IProviderOperationKeyFactory, ProviderOperationKeyFactory>();
         services.AddSingleton<IProviderCallbackVerifier, ProviderCallbackVerifier>();
+        services.AddSingleton<IWorkerFaultInjector, NoopWorkerFaultInjector>();
 
         return services;
     }

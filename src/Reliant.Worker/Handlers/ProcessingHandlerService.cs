@@ -56,6 +56,7 @@ public class ProcessingHandlerService(
                     var deadLetterRepo = innerScope.ServiceProvider.GetRequiredService<IDeadLetterRepository>();
                     var innerUnitOfWork = innerScope.ServiceProvider.GetRequiredService<IUnitOfWork>();
                     var dbContext = innerScope.ServiceProvider.GetRequiredService<ReliantDbContext>();
+                    var faultInjector = innerScope.ServiceProvider.GetRequiredService<IWorkerFaultInjector>();
                     var sender = innerScope.ServiceProvider.GetRequiredService<ISender>();
 
                     var existing = await inboxRepo.GetByMessageIdAsync(message.MessageId, stoppingToken);
@@ -292,6 +293,7 @@ public class ProcessingHandlerService(
                         }
 
                         await contributionRepo.UpdateAsync(contribution, stoppingToken);
+                        faultInjector.Inject(WorkerFaultPoint.AfterStateUpdated, contributionId.ToString());
 
                         var inboxMessage = new InboxMessage
                         {
@@ -304,9 +306,13 @@ public class ProcessingHandlerService(
                             ProcessedAt = DateTime.UtcNow,
                             Status = InboxStatus.Processed
                         };
+                        faultInjector.Inject(WorkerFaultPoint.BeforeInboxCommitted, contributionId.ToString());
                         await inboxRepo.AddAsync(inboxMessage, stoppingToken);
 
                         await innerUnitOfWork.SaveChangesAsync(stoppingToken);
+                        faultInjector.Inject(WorkerFaultPoint.AfterInboxCommitted, contributionId.ToString());
+
+                        faultInjector.Inject(WorkerFaultPoint.BeforeMessageAck, contributionId.ToString());
                         await queueAdapter.DeleteAsync(queueUrl, message.ReceiptHandle, stoppingToken);
 
                         logger.LogInformation("Message {MessageId} processed, attempt status: {Status}", message.MessageId, submitResult.Status);
