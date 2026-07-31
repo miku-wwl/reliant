@@ -40,3 +40,10 @@ app.UseRateLimiter();
 app.MapControllers();
 
 app.Run();
+
+/// <summary>
+/// Entry point for integration tests (WebApplicationFactory&lt;Program&gt;).
+/// </summary>
+public partial class Program
+{
+}

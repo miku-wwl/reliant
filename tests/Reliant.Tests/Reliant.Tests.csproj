@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
@@ -32,6 +33,7 @@
     <ProjectReference Include="..\..\src\Reliant.Application\Reliant.Application.csproj" />
     <ProjectReference Include="..\..\src\Reliant.Infrastructure\Reliant.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Reliant.Worker\Reliant.Worker.csproj" />
+    <ProjectReference Include="..\..\src\Reliant.Api\Reliant.Api.csproj" />
   </ItemGroup>
 
 </Project>

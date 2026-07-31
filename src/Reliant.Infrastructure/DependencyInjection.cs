@@ -18,6 +18,8 @@ public static class DependencyInjection
             options.UseNpgsql(configuration.GetConnectionString("PostgreSQL") ??
                 "Host=localhost;Port=5432;Database=reliant;Username=reliant;Password=reliant-dev"));
 
+        services.AddSingleton(TimeProvider.System);
+
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IContributionRepository, ContributionRepository>();
         services.AddScoped<ICampaignRepository, CampaignRepository>();

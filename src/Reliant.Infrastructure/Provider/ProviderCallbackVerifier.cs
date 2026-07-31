@@ -1,14 +1,15 @@
 using Microsoft.Extensions.Configuration;
 using Reliant.Application.Abstractions;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 
 namespace Reliant.Infrastructure.Provider;
 
-public class ProviderCallbackVerifier(IConfiguration configuration) : IProviderCallbackVerifier
+public class ProviderCallbackVerifier(IConfiguration configuration, TimeProvider timeProvider) : IProviderCallbackVerifier
 {
     private readonly string _secret = configuration["Provider:Secret"] ?? "sandbox-secret-key";
-    private const int MaxClockSkewMinutes = 5;
+    private static readonly TimeSpan MaxClockSkew = TimeSpan.FromMinutes(5);
 
     public CallbackVerificationResult Verify(string signature, string timestamp, string payload)
     {
@@ -18,11 +19,17 @@ public class ProviderCallbackVerifier(IConfiguration configuration) : IProviderC
         if (string.IsNullOrEmpty(timestamp))
             return new CallbackVerificationResult(false, "Missing timestamp");
 
-        if (!DateTime.TryParse(timestamp, null, System.Globalization.DateTimeStyles.RoundtripKind, out var ts))
+        // Strict UTC ISO-8601 round-trip: parseable AND an explicit UTC (Z)
+        // offset. Local times without an offset are rejected deterministically.
+        if (!DateTimeOffset.TryParse(timestamp, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var ts))
             return new CallbackVerificationResult(false, "Invalid timestamp format");
 
-        var now = DateTime.UtcNow;
-        if (Math.Abs((now - ts).TotalMinutes) > MaxClockSkewMinutes)
+        if (!timestamp.EndsWith("Z", StringComparison.OrdinalIgnoreCase) || ts.Offset != TimeSpan.Zero)
+            return new CallbackVerificationResult(false, "Timestamp must be UTC (ISO-8601 with Z)");
+
+        var now = timeProvider.GetUtcNow();
+        var elapsed = now - ts;
+        if (elapsed < -MaxClockSkew || elapsed > MaxClockSkew)
             return new CallbackVerificationResult(false, "Timestamp outside allowed window");
 
         var expected = ComputeSignature(timestamp, payload);
