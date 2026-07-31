@@ -19,6 +19,9 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
     public DbSet<JobDefinition> JobDefinitions => Set<JobDefinition>();
     public DbSet<JobRun> JobRuns => Set<JobRun>();
     public DbSet<JobAttempt> JobAttempts => Set<JobAttempt>();
+    public DbSet<ProcessingAttempt> ProcessingAttempts => Set<ProcessingAttempt>();
+    public DbSet<ProviderReference> ProviderReferences => Set<ProviderReference>();
+    public DbSet<ReconciliationRecord> ReconciliationRecords => Set<ReconciliationRecord>();
     public DbSet<Lease> Leases => Set<Lease>();
     public DbSet<Checkpoint> Checkpoints => Set<Checkpoint>();
     public DbSet<DeadLetterRecord> DeadLetterRecords => Set<DeadLetterRecord>();
@@ -200,6 +203,43 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.Status).HasConversion<int>();
             e.HasIndex(x => new { x.OrganizationId, x.Status });
             e.HasQueryFilter(x => x.OrganizationId == TenantFilterAccessor.CurrentOrganizationId);
+        });
+
+        modelBuilder.Entity<ProcessingAttempt>(e =>
+        {
+            e.ToTable("processing_attempts");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.ProviderIdempotencyKey).HasMaxLength(128).IsRequired();
+            e.Property(x => x.ProviderReference).HasMaxLength(128);
+            e.Property(x => x.Status).HasConversion<int>();
+            e.Property(x => x.ErrorCategory).HasConversion<int>();
+            e.Property(x => x.ErrorMessage).HasMaxLength(2000);
+            e.Property(x => x.RequestPayload).IsRequired();
+            e.HasIndex(x => x.ContributionId);
+            e.HasQueryFilter(x => false);
+        });
+
+        modelBuilder.Entity<ProviderReference>(e =>
+        {
+            e.ToTable("provider_references");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Reference).HasMaxLength(128).IsRequired();
+            e.Property(x => x.ProviderName).HasMaxLength(64).IsRequired();
+            e.HasIndex(x => x.ContributionId).IsUnique();
+            e.HasQueryFilter(x => x.OrganizationId == TenantFilterAccessor.CurrentOrganizationId);
+        });
+
+        modelBuilder.Entity<ReconciliationRecord>(e =>
+        {
+            e.ToTable("reconciliation_records");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.LocalState).HasConversion<int>();
+            e.Property(x => x.ProviderState).HasMaxLength(64).IsRequired();
+            e.Property(x => x.Difference).HasConversion<int>();
+            e.Property(x => x.Resolution).HasMaxLength(256).IsRequired();
+            e.Property(x => x.ResolvedBy).HasMaxLength(128);
+            e.HasIndex(x => x.ContributionId);
+            e.HasQueryFilter(x => false);
         });
     }
 }

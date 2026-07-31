@@ -4,7 +4,6 @@ using Microsoft.Extensions.Hosting;
 using Reliant.Application;
 using Reliant.Infrastructure;
 using Reliant.Infrastructure.Persistence;
-using Reliant.Worker;
 using Reliant.Worker.Handlers;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -15,6 +14,7 @@ builder.Services.AddReliantInfrastructure(builder.Configuration);
 builder.Services.AddHostedService<OutboxPublisherService>();
 builder.Services.AddHostedService<ProcessingHandlerService>();
 builder.Services.AddHostedService<NotificationHandlerService>();
+builder.Services.AddHostedService<ReconciliationHandlerService>();
 builder.Services.AddHostedService<ScheduledMaintenanceHandlerService>();
 
 var host = builder.Build();

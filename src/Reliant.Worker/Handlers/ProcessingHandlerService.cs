@@ -2,10 +2,12 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Reliant.Application.Abstractions;
+using Reliant.Application.Contributions.Commands;
 using Reliant.Application.Messaging;
 using Reliant.Domain.Entities;
 using Reliant.Domain.Enums;
 using Reliant.Infrastructure.Persistence;
+using MediatR;
 using System.Text.Json;
 
 namespace Reliant.Worker.Handlers;
@@ -37,15 +39,11 @@ public class ProcessingHandlerService(
                 {
                     using var scope = serviceProvider.CreateScope();
                     var queueAdapter = scope.ServiceProvider.GetRequiredService<IQueueAdapter>();
-                    var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
 
                     var queueUrl = await queueAdapter.GetOrCreateQueueAsync(QueueName, stoppingToken);
                     var message = await queueAdapter.ReceiveAsync(queueUrl, VisibilityTimeoutSeconds, stoppingToken);
 
-                    if (message is null)
-                    {
-                        return;
-                    }
+                    if (message is null) return;
 
                     logger.LogInformation("Processing message {MessageId}", message.MessageId);
 
@@ -56,6 +54,7 @@ public class ProcessingHandlerService(
                     var leaseRepo = innerScope.ServiceProvider.GetRequiredService<ILeaseRepository>();
                     var deadLetterRepo = innerScope.ServiceProvider.GetRequiredService<IDeadLetterRepository>();
                     var innerUnitOfWork = innerScope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+                    var sender = innerScope.ServiceProvider.GetRequiredService<ISender>();
 
                     var existing = await inboxRepo.GetByMessageIdAsync(message.MessageId, stoppingToken);
                     if (existing is { Status: InboxStatus.Processed })
@@ -83,29 +82,90 @@ public class ProcessingHandlerService(
                         var payload = JsonDocument.Parse(message.Payload);
                         var contributionId = payload.RootElement.GetProperty("contributionId").GetGuid();
                         var organizationId = payload.RootElement.GetProperty("organizationId").GetGuid();
+                        var amount = payload.RootElement.GetProperty("amount").GetDecimal();
+                        var currency = payload.RootElement.GetProperty("currency").GetString() ?? "USD";
 
                         TenantFilterAccessor.SetOrganizationId(organizationId);
 
                         var contribution = await contributionRepo.GetByIdAsync(contributionId, stoppingToken);
                         if (contribution is null)
-                        {
                             throw new InvalidOperationException($"Contribution {contributionId} not found");
-                        }
 
                         contribution.TransitionTo(ContributionState.Accepted, "Worker accepted");
                         contribution.TransitionTo(ContributionState.Processing, "Worker started processing");
                         await contributionRepo.UpdateAsync(contribution, stoppingToken);
-
-                        var stateTransition = new StateTransition
+                        await stateTransitionRepo.AddAsync(new StateTransition
                         {
                             Id = Guid.NewGuid(),
                             ContributionId = contributionId,
                             FromState = ContributionState.Created,
                             ToState = ContributionState.Processing,
-                            Reason = "Processing started by worker",
+                            Reason = "Processing started",
                             ChangedBy = workerId
-                        };
-                        await stateTransitionRepo.AddAsync(stateTransition, stoppingToken);
+                        }, stoppingToken);
+                        await innerUnitOfWork.SaveChangesAsync(stoppingToken);
+
+                        var submitResult = await sender.Send(new SubmitToProviderCommand(
+                            contributionId, organizationId, amount, currency, contribution.ExternalReference), stoppingToken);
+
+                        if (submitResult.Status == AttemptStatus.Succeeded)
+                        {
+                            contribution.TransitionTo(ContributionState.Succeeded, "Provider succeeded");
+                            await stateTransitionRepo.AddAsync(new StateTransition
+                            {
+                                Id = Guid.NewGuid(),
+                                ContributionId = contributionId,
+                                FromState = ContributionState.Processing,
+                                ToState = ContributionState.Succeeded,
+                                Reason = "Provider confirmed success",
+                                ChangedBy = workerId
+                            }, stoppingToken);
+                        }
+                        else if (submitResult.Status == AttemptStatus.Unknown)
+                        {
+                            contribution.TransitionTo(ContributionState.ProviderUnknown, "Provider timeout");
+                            contribution.TransitionTo(ContributionState.ReconciliationPending, "Awaiting reconciliation");
+                            await stateTransitionRepo.AddAsync(new StateTransition
+                            {
+                                Id = Guid.NewGuid(),
+                                ContributionId = contributionId,
+                                FromState = ContributionState.Processing,
+                                ToState = ContributionState.ReconciliationPending,
+                                Reason = $"Unknown outcome: {submitResult.ErrorMessage}",
+                                ChangedBy = workerId
+                            }, stoppingToken);
+                        }
+                        else
+                        {
+                            if (RetryPolicy.ShouldRetry(1, submitResult.ErrorCategory))
+                            {
+                                contribution.TransitionTo(ContributionState.RetryPending, "Retryable failure");
+                                await stateTransitionRepo.AddAsync(new StateTransition
+                                {
+                                    Id = Guid.NewGuid(),
+                                    ContributionId = contributionId,
+                                    FromState = ContributionState.Processing,
+                                    ToState = ContributionState.RetryPending,
+                                    Reason = $"Retryable: {submitResult.ErrorMessage}",
+                                    ChangedBy = workerId
+                                }, stoppingToken);
+                            }
+                            else
+                            {
+                                contribution.TransitionTo(ContributionState.Failed, "Permanent failure");
+                                await stateTransitionRepo.AddAsync(new StateTransition
+                                {
+                                    Id = Guid.NewGuid(),
+                                    ContributionId = contributionId,
+                                    FromState = ContributionState.Processing,
+                                    ToState = ContributionState.Failed,
+                                    Reason = $"Permanent: {submitResult.ErrorMessage}",
+                                    ChangedBy = workerId
+                                }, stoppingToken);
+                            }
+                        }
+
+                        await contributionRepo.UpdateAsync(contribution, stoppingToken);
 
                         var inboxMessage = new InboxMessage
                         {
@@ -123,7 +183,7 @@ public class ProcessingHandlerService(
                         await innerUnitOfWork.SaveChangesAsync(stoppingToken);
                         await queueAdapter.DeleteAsync(queueUrl, message.ReceiptHandle, stoppingToken);
 
-                        logger.LogInformation("Message {MessageId} processed successfully", message.MessageId);
+                        logger.LogInformation("Message {MessageId} processed, attempt status: {Status}", message.MessageId, submitResult.Status);
                     }
                     catch (InvalidStateTransitionException ex)
                     {
@@ -146,24 +206,6 @@ public class ProcessingHandlerService(
                     catch (Exception ex)
                     {
                         logger.LogError(ex, "Error processing message {MessageId}", message.MessageId);
-                        var retryable = RetryPolicy.ShouldRetry(1, ErrorCategory.ServerError);
-                        if (!retryable)
-                        {
-                            await deadLetterRepo.AddAsync(new DeadLetterRecord
-                            {
-                                Id = Guid.NewGuid(),
-                                OrganizationId = Guid.Empty,
-                                OriginalMessageId = message.MessageId,
-                                MessageType = message.MessageType,
-                                Payload = message.Payload,
-                                ErrorCategory = ErrorCategory.ServerError,
-                                ErrorMessage = ex.Message,
-                                AttemptCount = 1,
-                                Status = DeadLetterStatus.Pending
-                            }, stoppingToken);
-                            await innerUnitOfWork.SaveChangesAsync(stoppingToken);
-                            await queueAdapter.DeleteAsync(queueUrl, message.ReceiptHandle, stoppingToken);
-                        }
                     }
                     finally
                     {
@@ -184,11 +226,7 @@ public class ProcessingHandlerService(
                 }
             }, stoppingToken);
 
-            try
-            {
-                await Task.Delay(100, stoppingToken);
-            }
-            catch (OperationCanceledException) { }
+            try { await Task.Delay(100, stoppingToken); } catch (OperationCanceledException) { }
         }
 
         logger.LogInformation("Processing Handler stopped");
