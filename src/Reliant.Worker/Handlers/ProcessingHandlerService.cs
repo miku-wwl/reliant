@@ -109,18 +109,33 @@ public class ProcessingHandlerService(
                         switch (contribution.State)
                         {
                             case ContributionState.Created:
+                                // Every actual state change gets its own audit row:
+                                // Created -> Accepted, then Accepted -> Processing.
+                                var fromCreated = contribution.State;
                                 contribution.TransitionTo(ContributionState.Accepted, "Worker accepted");
-                                contribution.TransitionTo(ContributionState.Processing, "Worker started processing");
-                                await contributionRepo.UpdateAsync(contribution, stoppingToken);
                                 await stateTransitionRepo.AddAsync(new StateTransition
                                 {
                                     Id = Guid.NewGuid(),
                                     ContributionId = contributionId,
-                                    FromState = ContributionState.Created,
-                                    ToState = ContributionState.Processing,
-                                    Reason = "Processing started",
+                                    FromState = fromCreated,
+                                    ToState = ContributionState.Accepted,
+                                    Reason = "Worker accepted",
                                     ChangedBy = workerId
                                 }, stoppingToken);
+
+                                var fromAccepted = contribution.State;
+                                contribution.TransitionTo(ContributionState.Processing, "Worker started processing");
+                                await stateTransitionRepo.AddAsync(new StateTransition
+                                {
+                                    Id = Guid.NewGuid(),
+                                    ContributionId = contributionId,
+                                    FromState = fromAccepted,
+                                    ToState = ContributionState.Processing,
+                                    Reason = "Worker started processing",
+                                    ChangedBy = workerId
+                                }, stoppingToken);
+
+                                await contributionRepo.UpdateAsync(contribution, stoppingToken);
                                 await innerUnitOfWork.SaveChangesAsync(stoppingToken);
                                 break;
 
@@ -216,12 +231,13 @@ public class ProcessingHandlerService(
                         }
                         else if (submitResult.Status == AttemptStatus.Succeeded)
                         {
+                            var fromState = contribution.State;
                             contribution.TransitionTo(ContributionState.Succeeded, "Provider succeeded");
                             await stateTransitionRepo.AddAsync(new StateTransition
                             {
                                 Id = Guid.NewGuid(),
                                 ContributionId = contributionId,
-                                FromState = ContributionState.Processing,
+                                FromState = fromState,
                                 ToState = ContributionState.Succeeded,
                                 Reason = "Provider confirmed success",
                                 ChangedBy = workerId
