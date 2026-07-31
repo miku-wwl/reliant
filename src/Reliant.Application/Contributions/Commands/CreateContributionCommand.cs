@@ -119,7 +119,12 @@ public class CreateContributionHandler(
             Id = Guid.NewGuid(),
             OrganizationId = tenantContext.OrganizationId,
             MessageType = "ContributionCreated",
-            Payload = JsonSerializer.Serialize(new { version = 1, contributionId = contribution.Id, organizationId = contribution.OrganizationId, campaignId = contribution.CampaignId, amount = contribution.Amount, currency = contribution.Currency }),
+            Payload = JsonSerializer.Serialize(new ContributionProcessingMessage(
+                Version: 1,
+                ContributionId: contribution.Id,
+                OrganizationId: contribution.OrganizationId,
+                Trigger: "Created",
+                CorrelationId: tenantContext.CorrelationId ?? Guid.NewGuid().ToString())),
             CorrelationId = tenantContext.CorrelationId ?? Guid.NewGuid().ToString(),
             OccurredAt = DateTime.UtcNow,
             Status = OutboxStatus.Pending,

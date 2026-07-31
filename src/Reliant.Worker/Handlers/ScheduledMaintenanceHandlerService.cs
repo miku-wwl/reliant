@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Reliant.Application.Abstractions;
+using Reliant.Application.Dto;
 using Reliant.Application.Messaging;
 using Reliant.Domain.Entities;
 using Reliant.Domain.Enums;
@@ -75,25 +76,23 @@ public class ScheduledMaintenanceHandlerService(
                     }
                     else
                     {
-                        var fromState = contribution.State;
-                        contribution.TransitionTo(ContributionState.Processing, "Retry scheduled");
+                        // Keep RetryPending. The worker transitions RetryPending ->
+                        // Processing when it actually picks the message up. Clearing
+                        // NextRetryAt marks the retry as scheduled so GetRetryDueAsync
+                        // does not re-dispatch it while it is in flight.
                         contribution.NextRetryAt = null;
                         await contributionRepo.UpdateAsync(contribution, stoppingToken);
-                        await stateTransitionRepo.AddAsync(new StateTransition
-                        {
-                            Id = Guid.NewGuid(),
-                            ContributionId = contribution.Id,
-                            FromState = fromState,
-                            ToState = ContributionState.Processing,
-                            Reason = "Retry scheduled by maintenance handler",
-                            ChangedBy = "Scheduler"
-                        }, stoppingToken);
                         await outboxRepo.AddAsync(new OutboxMessage
                         {
                             Id = Guid.NewGuid(),
                             OrganizationId = contribution.OrganizationId,
                             MessageType = "ContributionRetryRequested",
-                            Payload = System.Text.Json.JsonSerializer.Serialize(new { contributionId = contribution.Id, organizationId = contribution.OrganizationId }),
+                            Payload = System.Text.Json.JsonSerializer.Serialize(new ContributionProcessingMessage(
+                                Version: 1,
+                                ContributionId: contribution.Id,
+                                OrganizationId: contribution.OrganizationId,
+                                Trigger: "Retry",
+                                CorrelationId: Guid.NewGuid().ToString())),
                             CorrelationId = Guid.NewGuid().ToString(),
                             OccurredAt = DateTime.UtcNow,
                             Status = OutboxStatus.Pending,

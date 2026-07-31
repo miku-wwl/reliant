@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Reliant.Application.Abstractions;
 using Reliant.Application.Contributions.Commands;
+using Reliant.Application.Dto;
 using Reliant.Application.Messaging;
 using Reliant.Domain.Entities;
 using Reliant.Domain.Enums;
@@ -80,11 +81,12 @@ public class ProcessingHandlerService(
 
                     try
                     {
-                        var payload = JsonDocument.Parse(message.Payload);
-                        var contributionId = payload.RootElement.GetProperty("contributionId").GetGuid();
-                        var organizationId = payload.RootElement.GetProperty("organizationId").GetGuid();
-                        var amount = payload.RootElement.GetProperty("amount").GetDecimal();
-                        var currency = payload.RootElement.GetProperty("currency").GetString() ?? "USD";
+                        var msg = JsonSerializer.Deserialize<ContributionProcessingMessage>(
+                            message.Payload,
+                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                            ?? throw new InvalidOperationException("Invalid processing message contract");
+                        var contributionId = msg.ContributionId;
+                        var organizationId = msg.OrganizationId;
 
                         TenantFilterAccessor.SetOrganizationId(organizationId);
 
@@ -92,24 +94,86 @@ public class ProcessingHandlerService(
                         if (contribution is null)
                             throw new InvalidOperationException($"Contribution {contributionId} not found");
 
-                        contribution.TransitionTo(ContributionState.Accepted, "Worker accepted");
-                        contribution.TransitionTo(ContributionState.Processing, "Worker started processing");
-                        await contributionRepo.UpdateAsync(contribution, stoppingToken);
-                        await stateTransitionRepo.AddAsync(new StateTransition
+                        // Business facts always come from the database, never from the
+                        // message payload, so retry messages cannot drift from reality.
+                        var amount = contribution.Amount;
+                        var currency = contribution.Currency;
+
+                        // The recovery/entry path depends on the current persisted state:
+                        //  - Created:       initial message -> Accepted -> Processing
+                        //  - RetryPending:  retry message  -> Processing
+                        //  - Processing:    redelivery/recovery -> resume, no re-entry
+                        //  - terminal/other: idempotent ACK, never blindly submit
+                        var skipProcessing = false;
+                        switch (contribution.State)
                         {
-                            Id = Guid.NewGuid(),
-                            ContributionId = contributionId,
-                            FromState = ContributionState.Created,
-                            ToState = ContributionState.Processing,
-                            Reason = "Processing started",
-                            ChangedBy = workerId
-                        }, stoppingToken);
-                        await innerUnitOfWork.SaveChangesAsync(stoppingToken);
+                            case ContributionState.Created:
+                                contribution.TransitionTo(ContributionState.Accepted, "Worker accepted");
+                                contribution.TransitionTo(ContributionState.Processing, "Worker started processing");
+                                await contributionRepo.UpdateAsync(contribution, stoppingToken);
+                                await stateTransitionRepo.AddAsync(new StateTransition
+                                {
+                                    Id = Guid.NewGuid(),
+                                    ContributionId = contributionId,
+                                    FromState = ContributionState.Created,
+                                    ToState = ContributionState.Processing,
+                                    Reason = "Processing started",
+                                    ChangedBy = workerId
+                                }, stoppingToken);
+                                await innerUnitOfWork.SaveChangesAsync(stoppingToken);
+                                break;
+
+                            case ContributionState.RetryPending:
+                                contribution.TransitionTo(ContributionState.Processing, "Retry resumed by worker");
+                                await contributionRepo.UpdateAsync(contribution, stoppingToken);
+                                await stateTransitionRepo.AddAsync(new StateTransition
+                                {
+                                    Id = Guid.NewGuid(),
+                                    ContributionId = contributionId,
+                                    FromState = ContributionState.RetryPending,
+                                    ToState = ContributionState.Processing,
+                                    Reason = "Retry picked up by worker",
+                                    ChangedBy = workerId
+                                }, stoppingToken);
+                                await innerUnitOfWork.SaveChangesAsync(stoppingToken);
+                                break;
+
+                            case ContributionState.Processing:
+                                // Redelivery / recovery: already claimed, resume below.
+                                logger.LogInformation("Contribution {ContributionId} redelivered while Processing, resuming", contributionId);
+                                break;
+
+                            case ContributionState.Succeeded:
+                            case ContributionState.Failed:
+                            case ContributionState.Completed:
+                            default:
+                                skipProcessing = true;
+                                break;
+                        }
+
+                        if (skipProcessing)
+                        {
+                            logger.LogInformation("Contribution {ContributionId} in state {State}, idempotent ACK without submit", contributionId, contribution.State);
+                            await inboxRepo.AddAsync(new InboxMessage
+                            {
+                                Id = Guid.NewGuid(),
+                                MessageId = message.MessageId,
+                                OrganizationId = organizationId,
+                                MessageType = message.MessageType,
+                                HandlerName = "ProcessingHandler",
+                                HandlerVersion = "1.0",
+                                ProcessedAt = DateTime.UtcNow,
+                                Status = InboxStatus.Processed
+                            }, stoppingToken);
+                            await innerUnitOfWork.SaveChangesAsync(stoppingToken);
+                            await queueAdapter.DeleteAsync(queueUrl, message.ReceiptHandle, stoppingToken);
+                            return;
+                        }
+
+                        var stateBeforeProviderCall = contribution.State;
 
                         var submitResult = await sender.Send(new SubmitToProviderCommand(
                             contributionId, organizationId, amount, currency, contribution.ExternalReference), stoppingToken);
-
-                        var stateBeforeProviderCall = contribution.State;
 
                         // TRUE reload: a callback may have arrived and committed a state
                         // change while the provider call was in flight. The pre-call
