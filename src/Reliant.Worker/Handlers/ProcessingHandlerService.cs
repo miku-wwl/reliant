@@ -195,6 +195,16 @@ public class ProcessingHandlerService(
 
                         contribution = current;
 
+                        if (submitResult.Disposition == ProviderSubmissionDisposition.DeferredBecauseCircuitOpen)
+                        {
+                            // Circuit open: no provider call happened, no business
+                            // attempt, no retry budget consumed, no processed inbox
+                            // and no SQS delete. Leave the message unacknowledged so
+                            // it is redelivered after the circuit recovers.
+                            logger.LogWarning("Contribution {ContributionId} deferred because circuit is open", contributionId);
+                            return;
+                        }
+
                         if (contribution.State == ContributionState.Succeeded)
                         {
                             logger.LogInformation("Contribution {ContributionId} already Succeeded (likely via callback), skipping state transition", contributionId);

@@ -9,7 +9,21 @@ namespace Reliant.Application.Contributions.Commands;
 
 public record SubmitToProviderCommand(Guid ContributionId, Guid OrganizationId, decimal Amount, string Currency, string ExternalReference) : IRequest<ProviderSubmissionResult>;
 
-public record ProviderSubmissionResult(AttemptStatus Status, string? ProviderReference, ErrorCategory? ErrorCategory, string? ErrorMessage);
+public enum ProviderSubmissionDisposition
+{
+    Succeeded,
+    DefinitiveFailure,
+    Unknown,
+    RetryableFailure,
+    DeferredBecauseCircuitOpen
+}
+
+public record ProviderSubmissionResult(
+    AttemptStatus Status,
+    string? ProviderReference,
+    ErrorCategory? ErrorCategory,
+    string? ErrorMessage,
+    ProviderSubmissionDisposition Disposition = ProviderSubmissionDisposition.Succeeded);
 
 public class SubmitToProviderHandler(
     IProvider provider,
@@ -39,7 +53,12 @@ public class SubmitToProviderHandler(
 
         if (!circuitBreaker.CanExecute())
         {
-            return new ProviderSubmissionResult(AttemptStatus.Failed, null, ErrorCategory.ServerError, "Circuit breaker is open");
+            // Defer while the circuit is open: no business ProcessingAttempt is
+            // created, no retry budget is consumed, and no failure is recorded.
+            // The worker leaves the message unacknowledged for redelivery later.
+            return new ProviderSubmissionResult(
+                AttemptStatus.Pending, null, null, "Circuit breaker is open",
+                ProviderSubmissionDisposition.DeferredBecauseCircuitOpen);
         }
 
         var idempotencyKey = keyFactory.CreateContributionSubmitKey(request.OrganizationId, request.ContributionId, ProviderName);
@@ -101,7 +120,10 @@ public class SubmitToProviderHandler(
                 circuitBreaker.RecordFailure(result.ErrorCategory);
 
                 await unitOfWork.SaveChangesAsync(ct);
-                return new ProviderSubmissionResult(AttemptStatus.Failed, null, result.ErrorCategory, result.ErrorMessage);
+                var disposition = result.ErrorCategory is ErrorCategory.PermanentBusinessRejection or ErrorCategory.ValidationFailure or ErrorCategory.AuthenticationFailure
+                    ? ProviderSubmissionDisposition.DefinitiveFailure
+                    : ProviderSubmissionDisposition.RetryableFailure;
+                return new ProviderSubmissionResult(AttemptStatus.Failed, null, result.ErrorCategory, result.ErrorMessage, disposition);
             }
 
             attempt.Status = AttemptStatus.Unknown;
@@ -110,7 +132,7 @@ public class SubmitToProviderHandler(
             circuitBreaker.RecordFailure(result.ErrorCategory);
 
             await unitOfWork.SaveChangesAsync(ct);
-            return new ProviderSubmissionResult(AttemptStatus.Unknown, null, result.ErrorCategory, result.ErrorMessage);
+            return new ProviderSubmissionResult(AttemptStatus.Unknown, null, result.ErrorCategory, result.ErrorMessage, ProviderSubmissionDisposition.Unknown);
         }
         catch (Exception ex)
         {
@@ -121,7 +143,7 @@ public class SubmitToProviderHandler(
             circuitBreaker.RecordFailure(ErrorCategory.Timeout);
 
             await unitOfWork.SaveChangesAsync(ct);
-            return new ProviderSubmissionResult(AttemptStatus.Unknown, null, ErrorCategory.Timeout, ex.Message);
+            return new ProviderSubmissionResult(AttemptStatus.Unknown, null, ErrorCategory.Timeout, ex.Message, ProviderSubmissionDisposition.Unknown);
         }
     }
 }

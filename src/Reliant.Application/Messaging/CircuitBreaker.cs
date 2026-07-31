@@ -7,9 +7,11 @@ public class CircuitBreaker
     private readonly object _lock = new();
     private CircuitBreakerState _state = CircuitBreakerState.Closed;
     private int _failureCount;
-    private DateTime _openedAt = DateTime.MinValue;
+    private DateTimeOffset _openedAt;
+    private bool _probeTaken;
     private readonly int _failureThreshold;
     private readonly TimeSpan _openDuration;
+    private readonly TimeProvider _timeProvider;
 
     public CircuitBreakerState State
     {
@@ -17,7 +19,7 @@ public class CircuitBreaker
         {
             lock (_lock)
             {
-                if (_state == CircuitBreakerState.Open && DateTime.UtcNow - _openedAt >= _openDuration)
+                if (_state == CircuitBreakerState.Open && _timeProvider.GetUtcNow() - _openedAt >= _openDuration)
                 {
                     _state = CircuitBreakerState.HalfOpen;
                 }
@@ -26,27 +28,48 @@ public class CircuitBreaker
         }
     }
 
-    public CircuitBreaker(int failureThreshold = 5, int openDurationSeconds = 30)
+    public CircuitBreaker(int failureThreshold = 5, int openDurationSeconds = 30, TimeProvider? timeProvider = null)
     {
         _failureThreshold = failureThreshold;
         _openDuration = TimeSpan.FromSeconds(openDurationSeconds);
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
+    /// <summary>
+    /// Whether this worker may call the provider. In Half-Open only a single
+    /// probe is granted - the first caller to transition Open -> Half-Open (or
+    /// the first to take the probe) is allowed through; everyone else is told to
+    /// defer. The probe is released on RecordSuccess/RecordFailure.
+    /// </summary>
     public bool CanExecute()
     {
         lock (_lock)
         {
-            if (_state == CircuitBreakerState.Closed) return true;
-            if (_state == CircuitBreakerState.Open)
+            var now = _timeProvider.GetUtcNow();
+
+            switch (_state)
             {
-                if (DateTime.UtcNow - _openedAt >= _openDuration)
-                {
-                    _state = CircuitBreakerState.HalfOpen;
+                case CircuitBreakerState.Closed:
                     return true;
-                }
-                return false;
+
+                case CircuitBreakerState.Open:
+                    if (now - _openedAt >= _openDuration)
+                    {
+                        // This caller becomes the single half-open probe.
+                        _state = CircuitBreakerState.HalfOpen;
+                        _probeTaken = true;
+                        return true;
+                    }
+                    return false;
+
+                default: // HalfOpen
+                    if (!_probeTaken)
+                    {
+                        _probeTaken = true;
+                        return true;
+                    }
+                    return false;
             }
-            return true;
         }
     }
 
@@ -56,6 +79,7 @@ public class CircuitBreaker
         {
             _failureCount = 0;
             _state = CircuitBreakerState.Closed;
+            _probeTaken = false;
         }
     }
 
@@ -70,8 +94,10 @@ public class CircuitBreaker
 
             if (_state == CircuitBreakerState.HalfOpen)
             {
+                // The single probe failed - reopen the circuit.
                 _state = CircuitBreakerState.Open;
-                _openedAt = DateTime.UtcNow;
+                _openedAt = _timeProvider.GetUtcNow();
+                _probeTaken = false;
                 return;
             }
 
@@ -85,7 +111,7 @@ public class CircuitBreaker
             if (_failureCount >= _failureThreshold)
             {
                 _state = CircuitBreakerState.Open;
-                _openedAt = DateTime.UtcNow;
+                _openedAt = _timeProvider.GetUtcNow();
             }
         }
     }

@@ -1,5 +1,6 @@
 using Reliant.Application.Messaging;
 using Reliant.Domain.Enums;
+using Reliant.Tests.TestHelpers;
 
 namespace Reliant.Tests.Unit;
 
@@ -52,13 +53,15 @@ public class CircuitBreakerTests
     [Fact]
     public void ShouldClose_OnSuccessAfterHalfOpen()
     {
-        var cb = new CircuitBreaker(failureThreshold: 1, openDurationSeconds: 1);
+        var clock = new FakeTimeProvider();
+        var cb = new CircuitBreaker(failureThreshold: 1, openDurationSeconds: 1, clock);
 
         cb.RecordFailure(ErrorCategory.ServerError);
         Assert.False(cb.CanExecute());
 
-        System.Threading.Thread.Sleep(1100);
+        clock.Advance(TimeSpan.FromSeconds(2));
 
+        // The first caller after the window becomes the single half-open probe.
         Assert.True(cb.CanExecute());
         cb.RecordSuccess();
         Assert.True(cb.CanExecute());
@@ -67,11 +70,12 @@ public class CircuitBreakerTests
     [Fact]
     public void ShouldReOpen_OnFailureDuringHalfOpen()
     {
-        var cb = new CircuitBreaker(failureThreshold: 1, openDurationSeconds: 1);
+        var clock = new FakeTimeProvider();
+        var cb = new CircuitBreaker(failureThreshold: 1, openDurationSeconds: 1, clock);
 
         cb.RecordFailure(ErrorCategory.ServerError);
 
-        System.Threading.Thread.Sleep(1100);
+        clock.Advance(TimeSpan.FromSeconds(2));
 
         Assert.True(cb.CanExecute());
         cb.RecordFailure(ErrorCategory.ServerError);
@@ -98,5 +102,60 @@ public class CircuitBreakerTests
         cb.RecordFailure(ErrorCategory.NetworkFailure);
 
         Assert.False(cb.CanExecute());
+    }
+
+    [Fact]
+    public void HalfOpen_ShouldAllowOnlyOneProbe()
+    {
+        var clock = new FakeTimeProvider();
+        var cb = new CircuitBreaker(failureThreshold: 1, openDurationSeconds: 1, clock);
+
+        cb.RecordFailure(ErrorCategory.ServerError);
+        clock.Advance(TimeSpan.FromSeconds(2));
+
+        // First caller becomes the probe; everyone else is deferred until the
+        // probe completes.
+        Assert.True(cb.CanExecute());
+        Assert.False(cb.CanExecute());
+        Assert.False(cb.CanExecute());
+
+        // Probe succeeds -> circuit closes -> all callers allowed again.
+        cb.RecordSuccess();
+        Assert.True(cb.CanExecute());
+        Assert.True(cb.CanExecute());
+    }
+
+    [Fact]
+    public void HalfOpenConcurrentWorkers_ShouldNotAllReachProvider()
+    {
+        var clock = new FakeTimeProvider();
+        var cb = new CircuitBreaker(failureThreshold: 1, openDurationSeconds: 1, clock);
+
+        cb.RecordFailure(ErrorCategory.ServerError);
+        clock.Advance(TimeSpan.FromSeconds(2));
+
+        var results = Enumerable.Range(0, 16)
+            .AsParallel()
+            .WithDegreeOfParallelism(16)
+            .Select(_ => cb.CanExecute())
+            .ToArray();
+
+        Assert.Equal(1, results.Count(r => r));
+    }
+
+    [Fact]
+    public void Open_ShouldDeferAll_UntilWindowElapses()
+    {
+        var clock = new FakeTimeProvider();
+        var cb = new CircuitBreaker(failureThreshold: 1, openDurationSeconds: 10, clock);
+
+        cb.RecordFailure(ErrorCategory.ServerError);
+        Assert.False(cb.CanExecute());
+
+        clock.Advance(TimeSpan.FromSeconds(5));
+        Assert.False(cb.CanExecute());
+
+        clock.Advance(TimeSpan.FromSeconds(6));
+        Assert.True(cb.CanExecute());
     }
 }
