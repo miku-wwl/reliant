@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: reliant-postgres
+    environment:
+      POSTGRES_DB: reliant
+      POSTGRES_USER: reliant
+      POSTGRES_PASSWORD: reliant-dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - reliant-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reliant -d reliant"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  reliant-postgres-data:

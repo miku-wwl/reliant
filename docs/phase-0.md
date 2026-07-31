@@ -27,16 +27,17 @@
 
 ## Stage C: Build
 
-- [ ] 创建 Solution 和项目结构
-- [ ] PostgreSQL + Docker Compose
-- [ ] LocalStack Ultimate Profile
-- [ ] CI 基线
-- [ ] Architecture Tests
-- [ ] 统一验证脚本
-- [ ] Evidence Schema
-- [ ] 基础 Terraform 目录
-- [ ] 基础 CLI
-- [ ] OpenAPI 基线
+- [x] 创建 Solution 和项目结构
+- [x] PostgreSQL + Docker Compose
+- [x] LocalStack Ultimate Profile（docker-compose.yml）
+- [x] CI 基线（Stage A 已完成）
+- [x] Architecture Tests（5 条规则，全部通过）
+- [x] 统一验证脚本（Stage A 已完成）
+- [x] Evidence Schema（`docs/evidence/EVIDENCE-TEMPLATE.md`）
+- [x] 基础 Terraform 目录（`terraform/localstack-aws/` + `terraform/azure/`）
+- [x] 基础 CLI（`reliantctl` 骨架）
+- [x] OpenAPI 基线
+- [x] Azure Budget Guard 脚本（`scripts/azure-budget-guard.ps1`）
 
 ## Stage D: Verify
 

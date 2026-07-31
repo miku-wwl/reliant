@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Reliant.Api/Reliant.Api.csproj" />
+    <Project Path="src/Reliant.Application/Reliant.Application.csproj" />
+    <Project Path="src/Reliant.Cli/Reliant.Cli.csproj" />
+    <Project Path="src/Reliant.Domain/Reliant.Domain.csproj" />
+    <Project Path="src/Reliant.Infrastructure/Reliant.Infrastructure.csproj" />
+    <Project Path="src/Reliant.Migrator/Reliant.Migrator.csproj" />
+    <Project Path="src/Reliant.Worker/Reliant.Worker.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Reliant.Tests/Reliant.Tests.csproj" />
+  </Folder>
+</Solution>
