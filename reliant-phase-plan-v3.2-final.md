@@ -191,32 +191,18 @@ LocalStack 用于提高频率和覆盖率；Azure 用于真实云证据。LocalS
 
 ## Stage B — Design
 
-编写：
+- `docs/current-state.md`（Stage A 已完成）；
+- ADR-0001：System Architecture（已完成）；
+- ADR-0002：Business Invariants（已完成）；
+- ADR-0003：Deployment Boundaries（已完成）；
+- ADR-0004：Evidence and State Ownership（已完成）；
+- AI Pair Programming Protocol（本文件第17节，已存在）；
+- Test and Evidence Level Strategy（ADR-0004 已覆盖）；
+- LocalStack Compatibility Policy（ADR-0003 已覆盖）；
+- Azure 100 USD Budget Plan（`docs/architecture/environment-baseline.md` 已覆盖）；
+- Cost and Cleanup Policy（ADR-0003 + `docs/architecture/environment-baseline.md` 已覆盖）。
 
-- `docs/vision.md`；
-- `docs/current-state.md`；
-- ADR-0001：System Architecture；
-- ADR-0002：Business Invariants；
-- ADR-0003：Deployment Boundaries；
-- ADR-0004：Evidence and State Ownership；
-- AI Pair Programming Protocol；
-- Test and Evidence Level Strategy；
-- LocalStack Compatibility Policy；
-- Azure 100 USD Budget Plan；
-- Cost and Cleanup Policy。
-
-建议 Solution：
-
-```text
-Reliant.Domain
-Reliant.Application
-Reliant.Infrastructure
-Reliant.Api
-Reliant.Worker
-Reliant.Migrator
-Reliant.Cli
-Reliant.Tests
-```
+Solution 结构以 ADR-0001 为准。
 
 ## Stage C — Build
 
@@ -1350,7 +1336,9 @@ AI 不得：
 - Production Endpoint 有 Permission；
 - Outbox 与业务状态同事务；
 - Revoked Artifact 不能部署；
-- Sample Provider 不进入真实 Release Path。
+- Sample Provider 不进入真实 Release Path；
+- 业务代码不散落 `if localstack` 判断；
+- LocalStack Profile 不能无提示连接真实 AWS。
 
 ## 18.3 Golden Paths
 

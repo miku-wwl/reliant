@@ -15,15 +15,15 @@
 
 ## Stage B: Design
 
-- [ ] ADR-0001: System Architecture
-- [ ] ADR-0002: Business Invariants
-- [ ] ADR-0003: Deployment Boundaries
-- [ ] ADR-0004: Evidence and State Ownership
-- [ ] AI Pair Programming Protocol
-- [ ] Test and Evidence Level Strategy
-- [ ] LocalStack Compatibility Policy
-- [ ] Azure 100 USD Budget Plan
-- [ ] Cost and Cleanup Policy
+- [x] ADR-0001: System Architecture
+- [x] ADR-0002: Business Invariants
+- [x] ADR-0003: Deployment Boundaries
+- [x] ADR-0004: Evidence and State Ownership
+- [x] AI Pair Programming Protocol（phase-plan 第17节）
+- [x] Test and Evidence Level Strategy（ADR-0004）
+- [x] LocalStack Compatibility Policy（ADR-0003）
+- [x] Azure 100 USD Budget Plan（environment-baseline.md）
+- [x] Cost and Cleanup Policy（ADR-0003 + environment-baseline.md）
 
 ## Stage C: Build
 
