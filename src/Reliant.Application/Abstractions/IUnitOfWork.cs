@@ -12,4 +12,8 @@ public interface IUnitOfWork
     /// back, so the caller can treat the operation as already handled.
     /// </summary>
     Task<bool> TrySaveChangesAsync(CancellationToken cancellationToken = default);
+
+    Task BeginTransactionAsync(CancellationToken cancellationToken = default);
+    Task CommitAsync(CancellationToken cancellationToken = default);
+    Task RollbackAsync(CancellationToken cancellationToken = default);
 }

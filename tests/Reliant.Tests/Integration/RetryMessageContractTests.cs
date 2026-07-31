@@ -215,7 +215,7 @@ public class RetryMessageContractTests : IClassFixture<PostgreSqlFixture>
         using var scope = sp.CreateScope();
         var contributionRepo = scope.ServiceProvider.GetRequiredService<IContributionRepository>();
 
-        var due = await contributionRepo.GetRetryDueAsync(10);
+        var due = await contributionRepo.GetRetryDueAsync(10, DateTime.UtcNow);
         var dueIds = due.Select(c => c.Id).ToHashSet();
 
         // Due retries are dispatched; not-due and already-scheduled (NextRetryAt=null) are not.

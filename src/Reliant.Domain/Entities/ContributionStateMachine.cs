@@ -15,7 +15,7 @@ public static class ContributionStateMachine
             ContributionState.ProviderUnknown,
             ContributionState.Failed
         ],
-        [ContributionState.RetryPending] = [ContributionState.Processing],
+        [ContributionState.RetryPending] = [ContributionState.Processing, ContributionState.Failed],
         [ContributionState.ProviderUnknown] = [ContributionState.ReconciliationPending],
         [ContributionState.ReconciliationPending] = [ContributionState.Succeeded, ContributionState.Failed, ContributionState.RetryPending],
         [ContributionState.Succeeded] = [ContributionState.ReceiptPending],

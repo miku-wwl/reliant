@@ -23,4 +23,19 @@ public class UnitOfWork(ReliantDbContext db) : IUnitOfWork
             return false;
         }
     }
+
+    public async Task BeginTransactionAsync(CancellationToken cancellationToken = default)
+    {
+        await db.Database.BeginTransactionAsync(cancellationToken);
+    }
+
+    public async Task CommitAsync(CancellationToken cancellationToken = default)
+    {
+        await db.Database.CommitTransactionAsync(cancellationToken);
+    }
+
+    public async Task RollbackAsync(CancellationToken cancellationToken = default)
+    {
+        await db.Database.RollbackTransactionAsync(cancellationToken);
+    }
 }

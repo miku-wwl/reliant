@@ -13,7 +13,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.8" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="NetArchTest.Rules" Version="1.3.2" />
     <PackageReference Include="Testcontainers" Version="4.4.0" />
@@ -30,6 +30,7 @@
     <ProjectReference Include="..\..\src\Reliant.Domain\Reliant.Domain.csproj" />
     <ProjectReference Include="..\..\src\Reliant.Application\Reliant.Application.csproj" />
     <ProjectReference Include="..\..\src\Reliant.Infrastructure\Reliant.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Reliant.Worker\Reliant.Worker.csproj" />
   </ItemGroup>
 
 </Project>

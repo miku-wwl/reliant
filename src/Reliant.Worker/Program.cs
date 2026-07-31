@@ -5,11 +5,15 @@ using Reliant.Application;
 using Reliant.Infrastructure;
 using Reliant.Infrastructure.Persistence;
 using Reliant.Worker.Handlers;
+using Reliant.Worker.Scheduling;
 
 var builder = Host.CreateApplicationBuilder(args);
 
 builder.Services.AddReliantApplication();
 builder.Services.AddReliantInfrastructure(builder.Configuration);
+
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddScoped<IRetryScheduler, RetrySchedulerService>();
 
 builder.Services.AddHostedService<OutboxPublisherService>();
 builder.Services.AddHostedService<ProcessingHandlerService>();

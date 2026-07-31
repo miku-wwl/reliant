@@ -53,14 +53,30 @@ public class ContributionRepository(ReliantDbContext db) : IContributionReposito
         await Task.CompletedTask;
     }
 
-    public async Task<List<Contribution>> GetRetryDueAsync(int limit, CancellationToken cancellationToken = default)
+    public async Task<List<Contribution>> GetRetryDueAsync(int limit, DateTime now, CancellationToken cancellationToken = default)
     {
         return await db.Contributions
             .IgnoreQueryFilters()
-            .Where(c => c.State == ContributionState.RetryPending && c.NextRetryAt != null && c.NextRetryAt <= DateTime.UtcNow)
+            .Where(c => c.State == ContributionState.RetryPending && c.NextRetryAt != null && c.NextRetryAt <= now)
             .OrderBy(c => c.NextRetryAt)
             .Take(limit)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<int> ClaimRetryDueAsync(Guid contributionId, DateTime now, CancellationToken cancellationToken = default)
+    {
+        // Atomic claim: only one concurrent scheduler can set NextRetryAt to null
+        // (the row is still due, not yet claimed). The second contender updates
+        // 0 rows and must back off, preventing duplicate retry dispatch.
+        return await db.Contributions
+            .IgnoreQueryFilters()
+            .Where(c => c.Id == contributionId
+                && c.State == ContributionState.RetryPending
+                && c.NextRetryAt != null
+                && c.NextRetryAt <= now)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(c => c.NextRetryAt, (DateTime?)null),
+                cancellationToken);
     }
 }
 
