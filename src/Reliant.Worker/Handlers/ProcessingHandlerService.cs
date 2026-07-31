@@ -54,6 +54,7 @@ public class ProcessingHandlerService(
                     var leaseRepo = innerScope.ServiceProvider.GetRequiredService<ILeaseRepository>();
                     var deadLetterRepo = innerScope.ServiceProvider.GetRequiredService<IDeadLetterRepository>();
                     var innerUnitOfWork = innerScope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+                    var dbContext = innerScope.ServiceProvider.GetRequiredService<ReliantDbContext>();
                     var sender = innerScope.ServiceProvider.GetRequiredService<ISender>();
 
                     var existing = await inboxRepo.GetByMessageIdAsync(message.MessageId, stoppingToken);
@@ -108,23 +109,35 @@ public class ProcessingHandlerService(
                         var submitResult = await sender.Send(new SubmitToProviderCommand(
                             contributionId, organizationId, amount, currency, contribution.ExternalReference), stoppingToken);
 
-                        var fromStateBeforeResult = contribution.State;
-                        var reloadedContribution = await contributionRepo.GetByIdAsync(contributionId, stoppingToken);
-                        if (reloadedContribution is null)
+                        var stateBeforeProviderCall = contribution.State;
+
+                        // TRUE reload: a callback may have arrived and committed a state
+                        // change while the provider call was in flight. The pre-call
+                        // tracking entity is stale - detach it and reload from the
+                        // database before making any post-call state decision, so a
+                        // callback-applied terminal state is never overwritten.
+                        dbContext.ChangeTracker.Clear();
+                        var current = await contributionRepo.GetByIdAsync(contributionId, stoppingToken);
+                        if (current is null)
                         {
                             throw new InvalidOperationException("Contribution disappeared during processing");
                         }
 
-                        if (reloadedContribution.State != fromStateBeforeResult)
+                        if (current.State != stateBeforeProviderCall)
                         {
                             logger.LogWarning("Contribution {ContributionId} state changed during provider call from {Before} to {After}, callback may have arrived first",
-                                contributionId, fromStateBeforeResult, reloadedContribution.State);
-                            contribution = reloadedContribution;
+                                contributionId, stateBeforeProviderCall, current.State);
                         }
+
+                        contribution = current;
 
                         if (contribution.State == ContributionState.Succeeded)
                         {
                             logger.LogInformation("Contribution {ContributionId} already Succeeded (likely via callback), skipping state transition", contributionId);
+                        }
+                        else if (contribution.State is ContributionState.Failed or ContributionState.Completed)
+                        {
+                            logger.LogInformation("Contribution {ContributionId} already in terminal state {State}, skipping state transition", contributionId, contribution.State);
                         }
                         else if (submitResult.Status == AttemptStatus.Succeeded)
                         {
