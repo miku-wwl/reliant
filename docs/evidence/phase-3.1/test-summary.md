@@ -1,63 +1,49 @@
-# Phase 3.1 Evidence - Reliability Gate Closure
+# Phase 3.1 Evidence - Test Summary
 
-> Evidence Level: E1 (Testcontainers + PostgreSQL)
+> Evidence Level: E1 (Testcontainers PostgreSQL) + E2 (LocalStack SQS + WorkerHost E2E)
 
 ## Test Summary
 
 | Test Category | Count | Status |
 | --- | --- | --- |
-| Unit Tests | 58 | All Passed |
+| Unit Tests | 61 | All Passed |
 | Architecture Tests | 5 | All Passed |
-| Integration Tests | 7 | All Passed |
-| **Total** | **70** | **All Passed** |
+| Integration Tests (PostgreSQL) | 45 | All Passed |
+| Integration Tests (LocalStack SQS) | 5 | All Passed |
+| End-to-End (WorkerHost) | 1 | All Passed |
+| **Total** | **117** | **All Passed** |
 
-## Provider Idempotency
+## Test Files (Integration + E2E)
 
-### SameContribution_ShouldProduceSingleProviderOperation
+| File | Scope | Dependency |
+| --- | --- | --- |
+| `CallbackTests.cs` (10) | Callback lookup/persistence/ordering, orphan, dedup, before-response | PostgreSQL |
+| `ProviderIdempotencyTests.cs` | Same contribution single provider operation, attempt-before-call | PostgreSQL |
+| `ProviderConcurrencyTests.cs` (6) | Concurrent submit -> 1 op/1 reference, key conflict, unique attempt, key reuse | PostgreSQL |
+| `ReconciliationTests.cs` | Processed-but-response-lost, NotFound on reconciliation | PostgreSQL |
+| `ReconciliationDecisionTableTests.cs` (7) | Full decision table + ProviderUnavailable + MaxCount | PostgreSQL |
+| `RetryMessageContractTests.cs` (3) | Versioned processing contract, retry-due selection | PostgreSQL |
+| `RetrySchedulingTests.cs` (5) | Due/not-due dispatch, concurrent scheduler single dispatch, max -> DLQ, retry count | PostgreSQL |
+| `CircuitBreakerIntegrationTests.cs` (4) | Open: no provider/attempt/budget; probe submit | PostgreSQL |
+| `CrashRecoveryTests.cs` (3) | Crash after attempt persisted / before response; inbox dedup | PostgreSQL |
+| `DatabaseConstraintTests.cs` | Unique idempotency key, tenant isolation, optimistic concurrency | PostgreSQL |
+| `LocalStackSqsTests.cs` (5) | Real SQS send/receive/delete, visibility, redelivery, duplicate delivery | LocalStack |
+| `FinalE2ETests.cs` (1) | Outbox -> SQS -> Worker -> Provider -> Reconciliation -> callback -> dedup | LocalStack + PostgreSQL + WorkerHost |
 
-- 场景：同一 Contribution 两次 Submit
-- 预期：Provider 只产生一个 Operation
-- 实际：ProviderOperationCount == 1，两次返回相同 Reference
-- 结果：PASS
-- 测试：`Integration/ProviderIdempotencyTests.cs`
+## Unit Test Files
 
-### AttemptPersisted_BeforeProviderCall
+- `CircuitBreakerTests.cs` (11): single probe, open/defer, TimeProvider-based
+- `ContributionStateMachineTests.cs` (27): all allowed transitions
+- `ProviderOperationKeyFactoryTests.cs` (8): stable key, no attempt number, org isolation
+- `RetryPolicyTests.cs`: exponential backoff / retryability classification
 
-- 场景：Submit 后检查 Attempt 在 Provider 调用前已持久化
-- 预期：Attempt 存在，Status=Succeeded，包含 IdempotencyKey
-- 实际：PASS
+## Notes
 
-## Unknown Outcome
-
-### ProcessedButResponseLost_ShouldConvergeToSucceeded_WithoutSecondProviderEffect
-
-- 场景：Provider 处理成功但响应丢失（Timeout）
-- 预期：Attempt Status=Unknown，Provider OperationCount=1
-- 实际：PASS
-
-### ProviderNotFound_OnReconciliation_ShouldTransitionToRetryPending
-
-- 场景：Provider 超时未处理，Reconciliation 查询返回 NotFound
-- 预期：可以安全重试
-- 实际：PASS
-
-## Database Constraints
-
-### UniqueIndex_ShouldPreventDuplicateIdempotencyKey
-
-- 场景：插入相同 IdempotencyKey
-- 预期：DbUpdateException
-- 实际：PASS
-
-### TenantFilter_ShouldIsolateData
-
-- 场景：Org A 的 Campaign 对 Org B 不可见
-- 预期：Org B 查询返回空
-- 实际：PASS
-
-### OptimisticConcurrency_ShouldPreventLostUpdate
-
-- 场景：两个 DbContext 同时更新同一 Organization
+- `PostgreSqlFixture` applies all EF migrations via Testcontainers PostgreSQL.
+- `WorkerHostFixture` runs the real worker host (Outbox Publisher, Processing,
+  Reconciliation, Scheduled Maintenance) against LocalStack SQS + PostgreSQL.
+- SQS adapter fixes verified: MessageType attribute round-trips, ApproximateReceiveCount
+  is read from system attributes.
 - 预期：第二个抛 DbUpdateConcurrencyException
 - 实际：PASS
 

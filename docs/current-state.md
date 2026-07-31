@@ -2,6 +2,15 @@
 
 > 最后更新：Phase 3.1（Reliability Gate Closure）
 
+## Phase 3.1 状态
+
+```text
+Phase 3.1 — In Progress
+
+Core reliability mechanisms implemented and verified end-to-end:
+Outbox -> SQS -> Worker -> Provider -> Reconciliation -> Callback.
+```
+
 ## 当前能力状态
 
 | 能力 | Implementation | Verification | Evidence |
@@ -10,25 +19,26 @@
 | Contribution 状态机 | Implemented | Verified | Unit Tests: 27 状态机测试 |
 | Idempotency | Implemented | Verified | Integration Test: UniqueIndex_ShouldPreventDuplicateIdempotencyKey |
 | Outbox/Inbox | Implemented | Verified | Integration Test: AttemptPersisted_BeforeProviderCall |
-| Unified Worker Host | Implemented | Partial | Unit Tests only, Integration pending |
-| Processing Handler | Implemented | Partial | Unit Tests only |
+| Unified Worker Host | Implemented | Verified | E2E: FinalE2ETests (LocalStack SQS + PostgreSQL) |
+| Processing Handler | Implemented | Verified | E2E: Outbox -> SQS -> Worker |
 | Notification Handler | Skeleton | Not Started | - |
-| Reconciliation Handler | Implemented | Verified | Integration Test: ProcessedButResponseLost |
-| Scheduled Maintenance | Implemented | Partial | Unit Tests only |
-| External Provider Adapter | Implemented | Verified | Integration Test: SameContribution_ShouldProduceSingleProviderOperation |
-| Unknown Outcome | Implemented | Verified | Integration Test: ProcessedButResponseLost_ShouldConverge |
-| Reconciliation | Implemented | Verified | Integration Test: ProviderNotFound_OnReconciliation |
-| Callback Security | Implemented | Partial | Unit Tests only |
-| Provider Idempotency | Implemented | Verified | Integration Test + Unit Test: 8 KeyFactory tests |
-| Circuit Breaker | Implemented | Verified | Unit Tests: 8 CircuitBreaker tests |
-| Retry Scheduling | Implemented | Partial | Logic implemented, scheduler test pending |
+| Reconciliation Handler | Implemented | Verified | Integration: ReconciliationDecisionTableTests (7) |
+| Scheduled Maintenance | Implemented | Verified | Integration: RetrySchedulingTests (并发 Scheduler) |
+| External Provider Adapter | Implemented | Verified | Integration: ProviderConcurrencyTests |
+| Unknown Outcome | Implemented | Verified | E2E: ProcessedResponseLost 收敛 Succeeded, Provider Effect=1 |
+| Reconciliation | Implemented | Verified | Decision Table 全覆盖 + ProviderUnavailable + MaxCount |
+| Callback | Implemented | Verified | Integration: CallbackTests (Reference/Key/Orphan/Dedup/并发) |
+| Provider Idempotency | Implemented | Verified | Atomic GetOrAdd + UNIQUE 约束 + 并发测试 |
+| Circuit Breaker | Implemented | Verified | Deferred 语义 + 单 Probe + TimeProvider + Integration |
+| Retry Scheduling | Implemented | Verified | 原子 Claim + TimeProvider + 并发 Scheduler |
+| Crash Recovery | Implemented | Verified | Fault Injection + CrashRecoveryTests |
 | Optimistic Concurrency | Implemented | Verified | Integration Test: OptimisticConcurrency_ShouldPreventLostUpdate |
 | OpenTelemetry | Not Started | Not Started | - |
 | Metrics / Logs / Dashboard | Not Started | Not Started | - |
 | SLI/SLO/Error Budget | Not Started | Not Started | - |
 | k6 Release Gate | Not Started | Not Started | - |
 | Azure E3 部署 | Not Started | Not Started | - |
-| LocalStack E2 AWS 验证 | Not Started | Not Started | - |
+| LocalStack E2 AWS 验证 | Implemented | Verified | E2E: FinalE2ETests + LocalStackSqsTests |
 | Real AWS E4 Smoke | Not Started | Not Started | - |
 | Azure Backup/Restore | Not Started | Not Started | - |
 | CI Pipeline | Implemented | Verified | GitHub Actions CI |
@@ -44,7 +54,9 @@
 
 ## 测试统计
 
-- Unit Tests: 58
+- Unit Tests: 61
 - Architecture Tests: 5
-- Integration Tests: 7 (Testcontainers + PostgreSQL)
-- Total: 70
+- Integration Tests (PostgreSQL): 45
+- Integration Tests (LocalStack SQS): 5
+- End-to-End (WorkerHost + LocalStack + PostgreSQL): 1
+- Total: 117

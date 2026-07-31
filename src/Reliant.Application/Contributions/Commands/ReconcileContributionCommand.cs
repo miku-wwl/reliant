@@ -197,6 +197,7 @@ public class ReconcileContributionHandler(
                     record.Resolution = "AutoFixed";
                     record.ResolvedAt = now;
                     record.ResolvedBy = "ReconciliationHandler";
+                    await PersistProviderReferenceIfMissingAsync(contribution, reference, providerResult.ProviderReference, ct);
                     break;
                 }
 
@@ -217,13 +218,12 @@ public class ReconcileContributionHandler(
                     record.Resolution = "AutoFixed";
                     record.ResolvedAt = now;
                     record.ResolvedBy = "ReconciliationHandler";
+                    await PersistProviderReferenceIfMissingAsync(contribution, reference, providerResult.ProviderReference, ct);
                     break;
                 }
 
             case ProviderStatus.NotFound:
                 {
-                    // Safe retry only after the provider confirms it never processed
-                    // the operation. Schedule a real retry via NextRetryAt.
                     var fromState = contribution.State;
                     contribution.TransitionTo(ContributionState.RetryPending, "Reconciliation: provider not found, safe to retry");
                     contribution.NextRetryAt = now.Add(RetryPolicy.GetDelay(contribution.RetryCount + 1));
@@ -265,5 +265,26 @@ public class ReconcileContributionHandler(
             providerResult.Status is ProviderStatus.Succeeded or ProviderStatus.Failed or ProviderStatus.NotFound,
             record.Resolution,
             diff);
+    }
+
+    private async Task PersistProviderReferenceIfMissingAsync(
+        Contribution contribution,
+        ProviderReference? existingReference,
+        string? providerReference,
+        CancellationToken ct)
+    {
+        // When the original submit response was lost, the provider query is what
+        // reveals the reference. Persist it so the local state has full evidence.
+        if (existingReference is null && providerReference is not null)
+        {
+            await referenceRepo.AddAsync(new ProviderReference
+            {
+                Id = Guid.NewGuid(),
+                ContributionId = contribution.Id,
+                OrganizationId = contribution.OrganizationId,
+                Reference = providerReference,
+                ProviderName = "sandbox"
+            }, ct);
+        }
     }
 }

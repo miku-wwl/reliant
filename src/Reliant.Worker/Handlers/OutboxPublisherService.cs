@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -9,11 +10,13 @@ namespace Reliant.Worker.Handlers;
 
 public class OutboxPublisherService(
     IServiceProvider serviceProvider,
+    IConfiguration configuration,
     ILogger<OutboxPublisherService> logger) : BackgroundService
 {
     private const int BatchSize = 50;
-    private const int PollIntervalMs = 2000;
     private const int MaxSendAttempts = 10;
+    private readonly TimeSpan _pollInterval = TimeSpan.FromMilliseconds(
+        configuration.GetValue<int?>("Worker:Outbox:IntervalMs") ?? 2000);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -68,7 +71,7 @@ public class OutboxPublisherService(
 
             try
             {
-                await Task.Delay(PollIntervalMs, stoppingToken);
+                await Task.Delay(_pollInterval, stoppingToken);
             }
             catch (OperationCanceledException) { }
         }

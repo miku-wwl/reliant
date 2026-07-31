@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -8,10 +9,12 @@ namespace Reliant.Worker.Handlers;
 
 public class ScheduledMaintenanceHandlerService(
     IServiceProvider serviceProvider,
+    IConfiguration configuration,
     ILogger<ScheduledMaintenanceHandlerService> logger,
     TimeProvider timeProvider) : BackgroundService
 {
-    private const int IntervalSeconds = 30;
+    private readonly TimeSpan _interval = TimeSpan.FromMilliseconds(
+        configuration.GetValue<int?>("Worker:Maintenance:IntervalMs") ?? 30000);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -41,8 +44,7 @@ public class ScheduledMaintenanceHandlerService(
 
             try
             {
-                var delay = TimeSpan.FromSeconds(IntervalSeconds);
-                await Task.Delay(delay, timeProvider, stoppingToken);
+                await Task.Delay(_interval, timeProvider, stoppingToken);
             }
             catch (OperationCanceledException) { }
         }

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -10,10 +11,12 @@ namespace Reliant.Worker.Handlers;
 
 public class ReconciliationHandlerService(
     IServiceProvider serviceProvider,
+    IConfiguration configuration,
     ILogger<ReconciliationHandlerService> logger) : BackgroundService
 {
-    private const int IntervalSeconds = 60;
     private const int BatchSize = 20;
+    private readonly TimeSpan _interval = TimeSpan.FromMilliseconds(
+        configuration.GetValue<int?>("Worker:Reconciliation:IntervalMs") ?? 60000);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -58,7 +61,7 @@ public class ReconciliationHandlerService(
 
             try
             {
-                await Task.Delay(TimeSpan.FromSeconds(IntervalSeconds), stoppingToken);
+                await Task.Delay(_interval, stoppingToken);
             }
             catch (OperationCanceledException) { }
         }
