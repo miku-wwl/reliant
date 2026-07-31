@@ -1207,15 +1207,14 @@ Stretch / R2：
 ## 16.1 权威顺序
 
 1. 运行安全和业务正确性；
-2. `docs/vision.md`；
-3. `docs/current-state.md`；
-4. 已接受 ADR；
-5. 当前 Phase Plan；
-6. 当前 Phase Packet；
-7. SLO Policy；
-8. Risk Register；
-9. Runbook / Incident / Evidence；
-10. 历史报告。
+2. `docs/current-state.md`；
+3. 已接受 ADR；
+4. 当前 Phase Plan；
+5. 当前 Phase Packet；
+6. SLO Policy；
+7. Risk Register；
+8. Runbook / Incident / Evidence；
+9. 历史报告。
 
 ## 16.2 Phase Packet
 

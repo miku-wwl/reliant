@@ -1,2 +1,3 @@
-# reliant
-Multi-Cloud Reliability Engineering Platform
+# Reliant
+
+Multi-Cloud SaaS Reliability Engineering System
