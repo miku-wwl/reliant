@@ -39,6 +39,10 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
     public async Task ResetAsync()
     {
         TenantFilterAccessor.Clear();
+
+        // Drop any tracked entities from a previous test so the change tracker
+        // never leaks rows into the freshly recreated database.
+        DbContext.ChangeTracker.Clear();
         await DbContext.Database.EnsureDeletedAsync();
         await DbContext.Database.MigrateAsync();
     }

@@ -228,15 +228,30 @@ public class ProcessingHandlerService(
                         }
                         else if (submitResult.Status == AttemptStatus.Unknown)
                         {
+                            // The actual machine executed Processing -> ProviderUnknown
+                            // -> ReconciliationPending. Both transitions must be
+                            // recorded; each FromState is captured before TransitionTo.
+                            var fromProcessing = contribution.State;
                             contribution.TransitionTo(ContributionState.ProviderUnknown, "Provider timeout");
+                            await stateTransitionRepo.AddAsync(new StateTransition
+                            {
+                                Id = Guid.NewGuid(),
+                                ContributionId = contributionId,
+                                FromState = fromProcessing,
+                                ToState = ContributionState.ProviderUnknown,
+                                Reason = $"Unknown outcome: {submitResult.ErrorMessage}",
+                                ChangedBy = workerId
+                            }, stoppingToken);
+
+                            var fromUnknown = contribution.State;
                             contribution.TransitionTo(ContributionState.ReconciliationPending, "Awaiting reconciliation");
                             await stateTransitionRepo.AddAsync(new StateTransition
                             {
                                 Id = Guid.NewGuid(),
                                 ContributionId = contributionId,
-                                FromState = ContributionState.Processing,
+                                FromState = fromUnknown,
                                 ToState = ContributionState.ReconciliationPending,
-                                Reason = $"Unknown outcome: {submitResult.ErrorMessage}",
+                                Reason = "Unknown outcome: awaiting reconciliation",
                                 ChangedBy = workerId
                             }, stoppingToken);
                         }

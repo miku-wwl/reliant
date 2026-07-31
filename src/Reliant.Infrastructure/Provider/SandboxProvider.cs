@@ -99,6 +99,7 @@ public class SandboxProvider : IProvider
                     "<<<malformed>>>");
 
             case "PendingThenSuccess":
+            case "PendingForever":
                 operation.Status = ProviderStatus.Pending;
                 return new ProviderResult(ProviderStatus.Pending, operation.ProviderReference, null,
                     "Provider is processing", null);
@@ -155,6 +156,11 @@ public class SandboxProvider : IProvider
 
     public Task<ProviderStatusResult> QueryStatusByReferenceAsync(string providerReference, CancellationToken ct = default)
     {
+        if (_mode == "QueryUnavailable")
+        {
+            throw new TaskCanceledException("Simulated provider query timeout");
+        }
+
         if (_byRef.TryGetValue(providerReference, out var op))
         {
             if (_mode == "PendingThenSuccess" && op.Status == ProviderStatus.Pending)
@@ -170,6 +176,11 @@ public class SandboxProvider : IProvider
 
     public Task<ProviderStatusResult> QueryStatusByIdempotencyKeyAsync(string idempotencyKey, CancellationToken ct = default)
     {
+        if (_mode == "QueryUnavailable")
+        {
+            throw new TaskCanceledException("Simulated provider query timeout");
+        }
+
         if (_byKey.TryGetValue(idempotencyKey, out var op))
         {
             if (_mode == "PendingThenSuccess" && op.Status == ProviderStatus.Pending)

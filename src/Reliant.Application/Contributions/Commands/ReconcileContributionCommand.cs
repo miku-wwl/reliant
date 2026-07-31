@@ -1,5 +1,6 @@
 using MediatR;
 using Reliant.Application.Abstractions;
+using Reliant.Application.Messaging;
 using Reliant.Domain.Entities;
 using Reliant.Domain.Enums;
 using System.Text.Json;
@@ -15,15 +16,21 @@ public class ReconcileContributionHandler(
     IProcessingAttemptRepository attemptRepo,
     IProviderReferenceRepository referenceRepo,
     IReconciliationRepository reconciliationRepo,
+    IOutboxRepository outboxRepo,
     IProvider provider,
     IStateTransitionRepository stateTransitionRepo,
-    IUnitOfWork unitOfWork) : IRequestHandler<ReconcileContributionCommand, ReconciliationResult>
+    IUnitOfWork unitOfWork,
+    TimeProvider timeProvider) : IRequestHandler<ReconcileContributionCommand, ReconciliationResult>
 {
     private const int MaxReconciliationCount = 20;
+    private static readonly RetryPolicy RetryPolicy = new();
 
     public async Task<ReconciliationResult> Handle(ReconcileContributionCommand request, CancellationToken ct)
     {
-        var contribution = await contributionRepo.GetByIdAsync(request.ContributionId, ct);
+        // The worker collects pending contribution IDs across all tenants
+        // (IgnoreQueryFilters), so the handler must load by ID without the
+        // ambient tenant filter and operate on the entity's own OrganizationId.
+        var contribution = await contributionRepo.GetByIdIgnoreTenantAsync(request.ContributionId, ct);
         if (contribution is null)
         {
             return new ReconciliationResult(false, "Contribution not found");
@@ -37,8 +44,11 @@ public class ReconcileContributionHandler(
         var existingRecords = await reconciliationRepo.ListByContributionAsync(request.ContributionId, ct);
         if (existingRecords.Count >= MaxReconciliationCount)
         {
+            // Max count: stop infinite scanning with an operator alert and a
+            // ManualRequired reconciliation record; move to Failed (terminal).
             var fromState = contribution.State;
             contribution.TransitionTo(ContributionState.Failed, "Max reconciliation count exceeded");
+            contribution.NextRetryAt = null;
             await contributionRepo.UpdateAsync(contribution, ct);
             await stateTransitionRepo.AddAsync(new StateTransition
             {
@@ -49,27 +59,69 @@ public class ReconcileContributionHandler(
                 Reason = $"Max reconciliation count ({MaxReconciliationCount}) exceeded",
                 ChangedBy = "ReconciliationHandler"
             }, ct);
+            await reconciliationRepo.AddAsync(new ReconciliationRecord
+            {
+                Id = Guid.NewGuid(),
+                ContributionId = contribution.Id,
+                OrganizationId = contribution.OrganizationId,
+                LocalState = contribution.State,
+                ProviderState = "MaxAttempts",
+                Difference = ReconciliationDifference.ProviderUnavailable,
+                Resolution = "ManualRequired",
+                ResolvedAt = null
+            }, ct);
+            await outboxRepo.AddAsync(new OutboxMessage
+            {
+                Id = Guid.NewGuid(),
+                OrganizationId = contribution.OrganizationId,
+                MessageType = "OperatorAlert",
+                Payload = JsonSerializer.Serialize(new
+                {
+                    alert = "Contribution stuck in reconciliation after max cycles, manual required",
+                    contributionId = contribution.Id
+                }),
+                CorrelationId = Guid.NewGuid().ToString(),
+                OccurredAt = timeProvider.GetUtcNow().UtcDateTime,
+                Status = OutboxStatus.Pending,
+                Version = 0
+            }, ct);
             await unitOfWork.SaveChangesAsync(ct);
-            return new ReconciliationResult(true, "Max reconciliation count exceeded, marked as Failed");
+            return new ReconciliationResult(true, "Max reconciliation count exceeded, ManualRequired");
         }
 
         var reference = await referenceRepo.GetByContributionAsync(request.ContributionId, ct);
         ProviderStatusResult? providerResult = null;
+        Exception? providerError = null;
 
         if (reference is not null)
         {
-            providerResult = await provider.QueryStatusByReferenceAsync(reference.Reference, ct);
+            try
+            {
+                providerResult = await provider.QueryStatusByReferenceAsync(reference.Reference, ct);
+            }
+            catch (Exception ex)
+            {
+                providerError = ex;
+            }
         }
         else
         {
             var latestAttempt = await attemptRepo.GetLatestByContributionAsync(request.ContributionId, ct);
             if (latestAttempt is not null)
             {
-                providerResult = await provider.QueryStatusByIdempotencyKeyAsync(latestAttempt.ProviderIdempotencyKey, ct);
+                try
+                {
+                    providerResult = await provider.QueryStatusByIdempotencyKeyAsync(latestAttempt.ProviderIdempotencyKey, ct);
+                }
+                catch (Exception ex)
+                {
+                    providerError = ex;
+                }
             }
             else
             {
-                var missingRecord = new ReconciliationRecord
+                // No local attempt: cannot prove safety, require manual intervention.
+                await reconciliationRepo.AddAsync(new ReconciliationRecord
                 {
                     Id = Guid.NewGuid(),
                     ContributionId = request.ContributionId,
@@ -77,12 +129,33 @@ public class ReconcileContributionHandler(
                     LocalState = contribution.State,
                     ProviderState = "NoEvidence",
                     Difference = ReconciliationDifference.ProviderNotFound,
-                    Resolution = "ManualRequired"
-                };
-                await reconciliationRepo.AddAsync(missingRecord, ct);
+                    Resolution = "ManualRequired",
+                    ResolvedAt = null
+                }, ct);
                 await unitOfWork.SaveChangesAsync(ct);
                 return new ReconciliationResult(false, "No local evidence, ManualRequired");
             }
+        }
+
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+
+        // ProviderUnavailable / transient query failure: stay unresolved, wait.
+        if (providerResult is null)
+        {
+            await reconciliationRepo.AddAsync(new ReconciliationRecord
+            {
+                Id = Guid.NewGuid(),
+                ContributionId = request.ContributionId,
+                OrganizationId = contribution.OrganizationId,
+                LocalState = contribution.State,
+                ProviderState = "Unavailable",
+                Difference = ReconciliationDifference.ProviderUnavailable,
+                Resolution = "WaitNextCycle",
+                ResolvedAt = null,
+                CreatedAt = now
+            }, ct);
+            await unitOfWork.SaveChangesAsync(ct);
+            return new ReconciliationResult(false, $"Provider unavailable: {providerError?.Message}");
         }
 
         var diff = providerResult.Status switch
@@ -93,14 +166,6 @@ public class ReconcileContributionHandler(
             _ => ReconciliationDifference.None
         };
 
-        var resolution = providerResult.Status switch
-        {
-            ProviderStatus.Succeeded or ProviderStatus.Failed => "AutoFixed",
-            ProviderStatus.NotFound => "SafeRetry",
-            ProviderStatus.Pending => "WaitNextCycle",
-            _ => "WaitNextCycle"
-        };
-
         var record = new ReconciliationRecord
         {
             Id = Guid.NewGuid(),
@@ -109,67 +174,96 @@ public class ReconcileContributionHandler(
             LocalState = contribution.State,
             ProviderState = providerResult.Status.ToString(),
             Difference = diff,
-            Resolution = resolution
+            Resolution = "WaitNextCycle",
+            CreatedAt = now
         };
 
-        if (providerResult.Status == ProviderStatus.Succeeded)
+        switch (providerResult.Status)
         {
-            var fromState = contribution.State;
-            contribution.TransitionTo(ContributionState.Succeeded, "Reconciliation: provider confirmed success");
-            await contributionRepo.UpdateAsync(contribution, ct);
-            await stateTransitionRepo.AddAsync(new StateTransition
-            {
-                Id = Guid.NewGuid(),
-                ContributionId = contribution.Id,
-                FromState = fromState,
-                ToState = ContributionState.Succeeded,
-                Reason = "Reconciliation confirmed success",
-                ChangedBy = "ReconciliationHandler"
-            }, ct);
-            record.ResolvedAt = DateTime.UtcNow;
-            record.ResolvedBy = "ReconciliationHandler";
-        }
-        else if (providerResult.Status == ProviderStatus.Failed)
-        {
-            var fromState = contribution.State;
-            contribution.TransitionTo(ContributionState.Failed, "Reconciliation: provider confirmed failure");
-            await contributionRepo.UpdateAsync(contribution, ct);
-            await stateTransitionRepo.AddAsync(new StateTransition
-            {
-                Id = Guid.NewGuid(),
-                ContributionId = contribution.Id,
-                FromState = fromState,
-                ToState = ContributionState.Failed,
-                Reason = "Reconciliation confirmed failure",
-                ChangedBy = "ReconciliationHandler"
-            }, ct);
-            record.ResolvedAt = DateTime.UtcNow;
-            record.ResolvedBy = "ReconciliationHandler";
-        }
-        else if (providerResult.Status == ProviderStatus.NotFound)
-        {
-            var fromState = contribution.State;
-            contribution.TransitionTo(ContributionState.RetryPending, "Reconciliation: provider not found, safe to retry");
-            await contributionRepo.UpdateAsync(contribution, ct);
-            await stateTransitionRepo.AddAsync(new StateTransition
-            {
-                Id = Guid.NewGuid(),
-                ContributionId = contribution.Id,
-                FromState = fromState,
-                ToState = ContributionState.RetryPending,
-                Reason = "Reconciliation: provider not found, safe retry",
-                ChangedBy = "ReconciliationHandler"
-            }, ct);
-            record.ResolvedAt = DateTime.UtcNow;
-            record.ResolvedBy = "ReconciliationHandler";
+            case ProviderStatus.Succeeded:
+                {
+                    var fromState = contribution.State;
+                    contribution.TransitionTo(ContributionState.Succeeded, "Reconciliation: provider confirmed success");
+                    await contributionRepo.UpdateAsync(contribution, ct);
+                    await stateTransitionRepo.AddAsync(new StateTransition
+                    {
+                        Id = Guid.NewGuid(),
+                        ContributionId = contribution.Id,
+                        FromState = fromState,
+                        ToState = ContributionState.Succeeded,
+                        Reason = "Reconciliation confirmed success",
+                        ChangedBy = "ReconciliationHandler"
+                    }, ct);
+                    record.Resolution = "AutoFixed";
+                    record.ResolvedAt = now;
+                    record.ResolvedBy = "ReconciliationHandler";
+                    break;
+                }
+
+            case ProviderStatus.Failed:
+                {
+                    var fromState = contribution.State;
+                    contribution.TransitionTo(ContributionState.Failed, "Reconciliation: provider confirmed failure");
+                    await contributionRepo.UpdateAsync(contribution, ct);
+                    await stateTransitionRepo.AddAsync(new StateTransition
+                    {
+                        Id = Guid.NewGuid(),
+                        ContributionId = contribution.Id,
+                        FromState = fromState,
+                        ToState = ContributionState.Failed,
+                        Reason = "Reconciliation confirmed failure",
+                        ChangedBy = "ReconciliationHandler"
+                    }, ct);
+                    record.Resolution = "AutoFixed";
+                    record.ResolvedAt = now;
+                    record.ResolvedBy = "ReconciliationHandler";
+                    break;
+                }
+
+            case ProviderStatus.NotFound:
+                {
+                    // Safe retry only after the provider confirms it never processed
+                    // the operation. Schedule a real retry via NextRetryAt.
+                    var fromState = contribution.State;
+                    contribution.TransitionTo(ContributionState.RetryPending, "Reconciliation: provider not found, safe to retry");
+                    contribution.NextRetryAt = now.Add(RetryPolicy.GetDelay(contribution.RetryCount + 1));
+                    await contributionRepo.UpdateAsync(contribution, ct);
+                    await stateTransitionRepo.AddAsync(new StateTransition
+                    {
+                        Id = Guid.NewGuid(),
+                        ContributionId = contribution.Id,
+                        FromState = fromState,
+                        ToState = ContributionState.RetryPending,
+                        Reason = "Reconciliation: provider not found, safe retry",
+                        ChangedBy = "ReconciliationHandler"
+                    }, ct);
+                    record.Resolution = "SafeRetry";
+                    record.ResolvedAt = now;
+                    record.ResolvedBy = "ReconciliationHandler";
+                    break;
+                }
+
+            case ProviderStatus.Pending:
+            default:
+                // Pending / InvalidResponse: stay ReconciliationPending, unresolved.
+                record.Resolution = "WaitNextCycle";
+                record.ResolvedAt = null;
+                break;
         }
 
         await reconciliationRepo.AddAsync(record, ct);
-        await unitOfWork.SaveChangesAsync(ct);
+
+        // Concurrent reconciliation: if another worker already applied the same
+        // resolution, the update conflicts and we treat it as already handled.
+        var saved = await unitOfWork.TrySaveChangesAsync(ct);
+        if (!saved)
+        {
+            return new ReconciliationResult(true, "Concurrent reconciliation already applied");
+        }
 
         return new ReconciliationResult(
             providerResult.Status is ProviderStatus.Succeeded or ProviderStatus.Failed or ProviderStatus.NotFound,
-            $"Provider status: {providerResult.Status}",
+            record.Resolution,
             diff);
     }
 }
