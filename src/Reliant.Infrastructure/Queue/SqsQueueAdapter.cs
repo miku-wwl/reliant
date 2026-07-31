@@ -52,7 +52,9 @@ public class SqsQueueAdapter : IQueueAdapter
             QueueUrl = queueUrl,
             MaxNumberOfMessages = 1,
             VisibilityTimeout = visibilityTimeoutSeconds,
-            WaitTimeSeconds = 5
+            WaitTimeSeconds = 5,
+            MessageAttributeNames = ["All"],
+            AttributeNames = [MessageSystemAttributeName.ApproximateReceiveCount]
         }, cancellationToken);
 
         if (response.Messages.Count == 0) return null;
@@ -70,11 +72,12 @@ public class SqsQueueAdapter : IQueueAdapter
         }, cancellationToken);
     }
 
-    public async Task SendAsync(string queueUrl, string messageBody, string messageId, CancellationToken cancellationToken = default)
+    public async Task SendAsync(string queueUrl, string messageBody, string messageId, string messageType, CancellationToken cancellationToken = default)
     {
         var attributes = new Dictionary<string, MessageAttributeValue>
         {
-            ["MessageId"] = new MessageAttributeValue { StringValue = messageId, DataType = "String" }
+            ["MessageId"] = new MessageAttributeValue { StringValue = messageId, DataType = "String" },
+            ["MessageType"] = new MessageAttributeValue { StringValue = messageType, DataType = "String" }
         };
 
         await _client.SendMessageAsync(new SendMessageRequest
@@ -91,6 +94,10 @@ internal sealed class SqsMessage(Message msg) : IQueueMessage
     public string MessageId => msg.MessageId;
     public string MessageType => msg.MessageAttributes.TryGetValue("MessageType", out var attr) ? attr.StringValue : "Unknown";
     public string Payload => msg.Body;
-    public int ApproximateReceiveCount => 0;
+    public int ApproximateReceiveCount =>
+        msg.Attributes.TryGetValue(MessageSystemAttributeName.ApproximateReceiveCount, out var count) &&
+        int.TryParse(count, out var parsed)
+            ? parsed
+            : 0;
     public string ReceiptHandle => msg.ReceiptHandle;
 }
