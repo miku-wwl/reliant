@@ -17,6 +17,7 @@ using Reliant.Tests.TestHelpers;
 namespace Reliant.Tests.Integration;
 
 [Trait("Category", "Integration")]
+[Trait("Dependency", "PostgreSQL")]
 public class CircuitBreakerIntegrationTests : IClassFixture<PostgreSqlFixture>
 {
     private readonly PostgreSqlFixture _fixture;

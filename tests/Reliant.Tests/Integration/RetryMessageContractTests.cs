@@ -17,6 +17,7 @@ using System.Text.Json;
 namespace Reliant.Tests.Integration;
 
 [Trait("Category", "Integration")]
+[Trait("Dependency", "PostgreSQL")]
 public class RetryMessageContractTests : IClassFixture<PostgreSqlFixture>
 {
     private readonly PostgreSqlFixture _fixture;

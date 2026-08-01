@@ -16,6 +16,7 @@ using Reliant.Worker.Scheduling;
 namespace Reliant.Tests.Integration;
 
 [Trait("Category", "Integration")]
+[Trait("Dependency", "PostgreSQL")]
 public class RetrySchedulingTests : IClassFixture<PostgreSqlFixture>
 {
     private readonly PostgreSqlFixture _fixture;

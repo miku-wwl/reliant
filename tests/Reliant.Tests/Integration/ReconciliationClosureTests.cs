@@ -15,6 +15,7 @@ using Reliant.Tests.Integration.Fixtures;
 namespace Reliant.Tests.Integration;
 
 [Trait("Category", "Integration")]
+[Trait("Dependency", "PostgreSQL")]
 public class ReconciliationClosureTests : IClassFixture<PostgreSqlFixture>
 {
     private readonly PostgreSqlFixture _fixture;

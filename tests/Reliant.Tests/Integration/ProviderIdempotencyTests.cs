@@ -15,6 +15,7 @@ using System.Text.Json;
 namespace Reliant.Tests.Integration;
 
 [Trait("Category", "Integration")]
+[Trait("Dependency", "PostgreSQL")]
 public class ProviderIdempotencyTests : IClassFixture<PostgreSqlFixture>
 {
     private readonly PostgreSqlFixture _fixture;
