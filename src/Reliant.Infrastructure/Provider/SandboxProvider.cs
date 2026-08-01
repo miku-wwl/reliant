@@ -16,10 +16,10 @@ public sealed class SandboxProviderOperation
     public DateTime CreatedAt { get; init; }
 }
 
-public class SandboxProvider : IProvider
+public class SandboxProvider : IProvider, ISandboxProviderControl
 {
     private readonly string _secret;
-    private readonly string _mode;
+    private volatile string _mode;
     private readonly ConcurrentDictionary<string, SandboxProviderOperation> _byKey = new();
     private readonly ConcurrentDictionary<string, SandboxProviderOperation> _byRef = new();
 
@@ -27,6 +27,11 @@ public class SandboxProvider : IProvider
     {
         _secret = configuration["Provider:Secret"] ?? "sandbox-secret-key";
         _mode = configuration["Provider:Mode"] ?? "Success";
+    }
+
+    public void SetMode(string mode)
+    {
+        _mode = mode;
     }
 
     public Task<ProviderResult> SubmitAsync(ProviderRequest request, CancellationToken ct = default)

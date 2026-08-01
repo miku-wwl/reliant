@@ -43,7 +43,12 @@ public static class DependencyInjection
 
         services.AddSingleton<IQueueAdapter, SqsQueueAdapter>();
         services.AddSingleton<IQueueMessagePublisher, QueueMessagePublisher>();
-        services.AddSingleton<IProvider, SandboxProvider>();
+        // One SandboxProvider instance shared by the provider interface and the
+        // test/dev control surface so tests can switch its mode at runtime while
+        // still observing the real operation counts.
+        services.AddSingleton<SandboxProvider>();
+        services.AddSingleton<IProvider>(sp => sp.GetRequiredService<SandboxProvider>());
+        services.AddSingleton<ISandboxProviderControl>(sp => sp.GetRequiredService<SandboxProvider>());
         services.AddSingleton<CircuitBreaker>();
         services.AddSingleton<IProviderOperationKeyFactory, ProviderOperationKeyFactory>();
         services.AddSingleton<IProviderCallbackVerifier, ProviderCallbackVerifier>();
