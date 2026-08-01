@@ -58,9 +58,11 @@ CI evidence: docs/evidence/phase-3.1/ci-run.md
 
 ## 测试统计
 
-- Unit Tests: 61
+- Unit Tests: 65
 - Architecture Tests: 5
-- Integration Tests (PostgreSQL): 45
-- Integration Tests (LocalStack SQS): 5
-- End-to-End (WorkerHost + LocalStack + PostgreSQL): 1
-- Total: 117
+- PostgreSQL Integration Tests: 52
+- LocalStack Integration Tests: 15
+- HTTP API Integration Tests: 9
+- WorkerHost End-to-End Tests: 10
+- Integration Tests Total: 76
+- Total Tests: 146

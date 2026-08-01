@@ -61,8 +61,10 @@
 
 ## Known Limitations
 
-- Integration Tests 使用 Testcontainers PostgreSQL，CI 需要支持 Docker
-- LocalStack SQS Integration Tests 尚未实现（Phase 7 深入验证）
-- Callback 处理的 Integration Tests 尚未实现（需 API 端到端测试）
-- Retry Scheduling 的 Integration Tests 尚未实现（需 Worker 端到端测试）
-- SandboxProvider 是 Singleton，跨测试共享状态（通过 EnsureDeleted 重置）
+以下限制不影响 Phase 3.1 Final Gate：
+
+- 尚未执行真实 AWS E4 Smoke Test；当前 AWS 队列语义通过 LocalStack E2 验证。
+- Notification Handler 仍为 Skeleton，不属于 Phase 3.1 Reliability Gate 范围。
+- Provider Secret 尚未接入 Azure Key Vault 或 AWS Secrets Manager。
+- Retry Policy、Circuit Breaker 阈值和并发限制仍需要在后续负载测试中调优。
+- SandboxProvider 仅用于测试和故障模拟，不代表真实第三方 Provider 的全部行为。
