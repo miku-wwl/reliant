@@ -9,6 +9,14 @@ namespace Reliant.Application.Contributions.Commands;
 
 public record ReconcileContributionCommand(Guid ContributionId) : IRequest<ReconciliationResult>;
 
+/// <summary>
+/// Outcome of one reconciliation cycle.
+/// <see cref="Resolved"/> is true ONLY when this cycle resolved the local/remote
+/// difference (Succeeded / Failed confirmed, or NotFound scheduled a safe retry).
+/// It is FALSE when the difference could not be auto-resolved: ManualRequired
+/// (needs human intervention), provider Pending / Unavailable / InvalidResponse,
+/// or a transient error - the contribution stays unresolved for a later cycle.
+/// </summary>
 public record ReconciliationResult(bool Resolved, string Resolution, ReconciliationDifference? Difference = null);
 
 public class ReconcileContributionHandler(
@@ -86,7 +94,9 @@ public class ReconcileContributionHandler(
                 Version = 0
             }, ct);
             await unitOfWork.SaveChangesAsync(ct);
-            return new ReconciliationResult(true, "Max reconciliation count exceeded, ManualRequired");
+            // ManualRequired means the difference is NOT resolved - an operator must
+            // act. Resolved must be false so consumers do not treat this as converged.
+            return new ReconciliationResult(false, "Max reconciliation count exceeded, ManualRequired");
         }
 
         var reference = await referenceRepo.GetByContributionAsync(request.ContributionId, ct);

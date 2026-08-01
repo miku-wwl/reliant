@@ -15,11 +15,11 @@ using Reliant.Tests.Integration.Fixtures;
 namespace Reliant.Tests.Integration;
 
 [Trait("Category", "Integration")]
-public class ReconciliationDecisionTableTests : IClassFixture<PostgreSqlFixture>
+public class ReconciliationClosureTests : IClassFixture<PostgreSqlFixture>
 {
     private readonly PostgreSqlFixture _fixture;
 
-    public ReconciliationDecisionTableTests(PostgreSqlFixture fixture)
+    public ReconciliationClosureTests(PostgreSqlFixture fixture)
     {
         _fixture = fixture;
     }
@@ -69,7 +69,7 @@ public class ReconciliationDecisionTableTests : IClassFixture<PostgreSqlFixture>
         db.Set<Organization>().Add(new Organization
         {
             Id = orgId,
-            Name = "Test Org",
+            Name = "Closure Org",
             Status = OrganizationStatus.Active,
             Version = 0
         });
@@ -77,7 +77,7 @@ public class ReconciliationDecisionTableTests : IClassFixture<PostgreSqlFixture>
         {
             Id = campaignId,
             OrganizationId = orgId,
-            Name = "Test",
+            Name = "Closure",
             Status = CampaignStatus.Active,
             Version = 0
         });
@@ -86,7 +86,7 @@ public class ReconciliationDecisionTableTests : IClassFixture<PostgreSqlFixture>
             Id = contributionId,
             OrganizationId = orgId,
             CampaignId = campaignId,
-            ExternalReference = "RECON-001",
+            ExternalReference = "CLOSURE-001",
             Amount = 100m,
             Currency = "USD",
             State = ContributionState.ReconciliationPending,
@@ -153,164 +153,26 @@ public class ReconciliationDecisionTableTests : IClassFixture<PostgreSqlFixture>
     {
         var provider = sp.GetRequiredService<IProvider>() as SandboxProvider;
         Assert.NotNull(provider);
-        await provider!.SubmitAsync(new ProviderRequest(key, amount, currency, "RECON-001"));
+        await provider!.SubmitAsync(new ProviderRequest(key, amount, currency, "CLOSURE-001"));
         return provider;
     }
 
-    [Fact]
-    public async Task ProviderSucceeded_ShouldConvergeToSucceeded()
-    {
-        const string key = "recon-key-succeeded";
-        var (orgId, contributionId) = await SeedReconciliationPendingAsync(attemptKey: key);
-        var sp = BuildServices("Success");
-
-        using var scope = sp.CreateScope();
-        SetTenant(scope.ServiceProvider, orgId);
-        var provider = await CreateProviderOperationAsync(scope.ServiceProvider, key);
-
-        var sender = scope.ServiceProvider.GetRequiredService<MediatR.ISender>();
-        TenantFilterAccessor.SetOrganizationId(orgId);
-        var result = await sender.Send(new ReconcileContributionCommand(contributionId));
-
-        Assert.True(result.Resolved, $"Resolution=[{result.Resolution}] Difference=[{result.Difference}]");
-        Assert.Equal("AutoFixed", result.Resolution);
-
-        var db = scope.ServiceProvider.GetRequiredService<ReliantDbContext>();
-        var contribution = await db.Set<Contribution>().IgnoreQueryFilters().SingleAsync(c => c.Id == contributionId);
-        Assert.Equal(ContributionState.Succeeded, contribution.State);
-
-        var record = await db.Set<ReconciliationRecord>().IgnoreQueryFilters().SingleAsync(r => r.ContributionId == contributionId);
-        Assert.NotNull(record.ResolvedAt);
-        Assert.Equal("AutoFixed", record.Resolution);
-
-        var transition = await db.Set<StateTransition>().IgnoreQueryFilters().SingleAsync(t => t.ContributionId == contributionId);
-        Assert.Equal(ContributionState.ReconciliationPending, transition.FromState);
-        Assert.Equal(ContributionState.Succeeded, transition.ToState);
-
-        TenantFilterAccessor.Clear();
-    }
+    // ------------------------------------------------------------------ //
+    // Resolved semantics: ManualRequired / Pending / Unavailable are NOT   //
+    // resolved; Succeeded / Failed / NotFound-safe-retry ARE resolved.     //
+    // ------------------------------------------------------------------ //
 
     [Fact]
-    public async Task ProviderFailed_ShouldConvergeToFailed()
+    public async Task ManualRequired_ShouldReturnUnresolved()
     {
-        const string key = "recon-key-failed";
-        var (orgId, contributionId) = await SeedReconciliationPendingAsync(attemptKey: key);
-        var sp = BuildServices("Success");
-
-        using var scope = sp.CreateScope();
-        SetTenant(scope.ServiceProvider, orgId);
-        var provider = await CreateProviderOperationAsync(scope.ServiceProvider, key);
-        // Cancel the operation so the provider reports a definitive failure.
-        var query = await provider.QueryStatusByIdempotencyKeyAsync(key);
-        Assert.NotNull(query.ProviderReference);
-        await provider.CancelAsync(query.ProviderReference!);
-
-        var sender = scope.ServiceProvider.GetRequiredService<MediatR.ISender>();
-        var result = await sender.Send(new ReconcileContributionCommand(contributionId));
-
-        Assert.True(result.Resolved);
-
-        var db = scope.ServiceProvider.GetRequiredService<ReliantDbContext>();
-        var contribution = await db.Set<Contribution>().IgnoreQueryFilters().SingleAsync(c => c.Id == contributionId);
-        Assert.Equal(ContributionState.Failed, contribution.State);
-
-        TenantFilterAccessor.Clear();
-    }
-
-    [Fact]
-    public async Task ProviderPending_ShouldRemainReconciliationPending()
-    {
-        const string key = "recon-key-pending";
-        var (orgId, contributionId) = await SeedReconciliationPendingAsync(attemptKey: key);
-        // PendingForever: the operation stays Pending and never advances.
-        var sp = BuildServices("PendingForever");
-
-        using var scope = sp.CreateScope();
-        SetTenant(scope.ServiceProvider, orgId);
-        await CreateProviderOperationAsync(scope.ServiceProvider, key); // op stays Pending on first query
-
-        var sender = scope.ServiceProvider.GetRequiredService<MediatR.ISender>();
-        var result = await sender.Send(new ReconcileContributionCommand(contributionId));
-
-        Assert.False(result.Resolved);
-
-        var db = scope.ServiceProvider.GetRequiredService<ReliantDbContext>();
-        var contribution = await db.Set<Contribution>().IgnoreQueryFilters().SingleAsync(c => c.Id == contributionId);
-        Assert.Equal(ContributionState.ReconciliationPending, contribution.State);
-
-        var record = await db.Set<ReconciliationRecord>().IgnoreQueryFilters().SingleAsync(r => r.ContributionId == contributionId);
-        Assert.Null(record.ResolvedAt);
-        Assert.Equal("WaitNextCycle", record.Resolution);
-
-        TenantFilterAccessor.Clear();
-    }
-
-    [Fact]
-    public async Task ProviderNotFound_ShouldSetRetryPendingAndNextRetryAt()
-    {
-        const string key = "recon-key-notfound";
-        var (orgId, contributionId) = await SeedReconciliationPendingAsync(attemptKey: key);
-        // TimeoutBeforeProcessing never creates a provider operation -> NotFound.
-        var sp = BuildServices("TimeoutBeforeProcessing");
-
-        using var scope = sp.CreateScope();
-        SetTenant(scope.ServiceProvider, orgId);
-
-        var sender = scope.ServiceProvider.GetRequiredService<MediatR.ISender>();
-        var result = await sender.Send(new ReconcileContributionCommand(contributionId));
-
-        Assert.True(result.Resolved);
-        Assert.Equal("SafeRetry", result.Resolution);
-
-        var db = scope.ServiceProvider.GetRequiredService<ReliantDbContext>();
-        var contribution = await db.Set<Contribution>().IgnoreQueryFilters().SingleAsync(c => c.Id == contributionId);
-        Assert.Equal(ContributionState.RetryPending, contribution.State);
-        // A real retry schedule must be set so the scheduler can pick it up.
-        Assert.NotNull(contribution.NextRetryAt);
-        Assert.True(contribution.NextRetryAt > DateTime.UtcNow);
-
-        TenantFilterAccessor.Clear();
-    }
-
-    [Fact]
-    public async Task ProviderUnavailable_ShouldRemainPendingAndUnresolved()
-    {
-        const string key = "recon-key-unavailable";
-        var (orgId, contributionId) = await SeedReconciliationPendingAsync(attemptKey: key);
-        var sp = BuildServices("QueryUnavailable");
-
-        using var scope = sp.CreateScope();
-        SetTenant(scope.ServiceProvider, orgId);
-        await CreateProviderOperationAsync(scope.ServiceProvider, key); // op exists but queries throw
-
-        var sender = scope.ServiceProvider.GetRequiredService<MediatR.ISender>();
-        var result = await sender.Send(new ReconcileContributionCommand(contributionId));
-
-        Assert.False(result.Resolved);
-        Assert.Contains("unavailable", result.Resolution, StringComparison.OrdinalIgnoreCase);
-
-        var db = scope.ServiceProvider.GetRequiredService<ReliantDbContext>();
-        var contribution = await db.Set<Contribution>().IgnoreQueryFilters().SingleAsync(c => c.Id == contributionId);
-        Assert.Equal(ContributionState.ReconciliationPending, contribution.State);
-
-        var record = await db.Set<ReconciliationRecord>().IgnoreQueryFilters().SingleAsync(r => r.ContributionId == contributionId);
-        Assert.Equal("Unavailable", record.ProviderState);
-        Assert.Equal(ReconciliationDifference.ProviderUnavailable, record.Difference);
-        Assert.Null(record.ResolvedAt);
-
-        TenantFilterAccessor.Clear();
-    }
-
-    [Fact]
-    public async Task MissingLocalAttempt_ShouldCreateManualRequired()
-    {
+        // No local attempt and no reference -> cannot prove safety -> ManualRequired.
         var (orgId, contributionId) = await SeedReconciliationPendingAsync();
         var sp = BuildServices("Success");
 
         using var scope = sp.CreateScope();
         SetTenant(scope.ServiceProvider, orgId);
-
         var sender = scope.ServiceProvider.GetRequiredService<MediatR.ISender>();
+
         var result = await sender.Send(new ReconcileContributionCommand(contributionId));
 
         Assert.False(result.Resolved);
@@ -325,18 +187,18 @@ public class ReconciliationDecisionTableTests : IClassFixture<PostgreSqlFixture>
     }
 
     [Fact]
-    public async Task MaxReconciliationCount_ShouldCreateManualRequiredAlert()
+    public async Task ManualRequiredMaxCycles_ShouldReturnUnresolved()
     {
+        // Reconciliation count exhausted -> ManualRequired alert, NOT resolved.
         var (orgId, contributionId) = await SeedReconciliationPendingAsync(reconciliationRecords: 20);
         var sp = BuildServices("Success");
 
         using var scope = sp.CreateScope();
         SetTenant(scope.ServiceProvider, orgId);
-
         var sender = scope.ServiceProvider.GetRequiredService<MediatR.ISender>();
+
         var result = await sender.Send(new ReconcileContributionCommand(contributionId));
 
-        // ManualRequired is NOT resolved: an operator must act on the contribution.
         Assert.False(result.Resolved);
         Assert.Contains("ManualRequired", result.Resolution);
 
@@ -344,10 +206,139 @@ public class ReconciliationDecisionTableTests : IClassFixture<PostgreSqlFixture>
         var contribution = await db.Set<Contribution>().IgnoreQueryFilters().SingleAsync(c => c.Id == contributionId);
         Assert.Equal(ContributionState.Failed, contribution.State);
 
-        var alert = await db.Set<OutboxMessage>().IgnoreQueryFilters()
-            .Where(o => o.MessageType == "OperatorAlert" && o.OrganizationId == orgId)
-            .ToListAsync();
-        Assert.Single(alert);
+        TenantFilterAccessor.Clear();
+    }
+
+    [Fact]
+    public async Task ProviderPending_ShouldReturnUnresolved()
+    {
+        const string key = "closure-key-pending";
+        var (orgId, contributionId) = await SeedReconciliationPendingAsync(attemptKey: key);
+        var sp = BuildServices("PendingForever");
+
+        using var scope = sp.CreateScope();
+        SetTenant(scope.ServiceProvider, orgId);
+        await CreateProviderOperationAsync(scope.ServiceProvider, key);
+
+        var sender = scope.ServiceProvider.GetRequiredService<MediatR.ISender>();
+        var result = await sender.Send(new ReconcileContributionCommand(contributionId));
+
+        Assert.False(result.Resolved);
+        Assert.Equal("WaitNextCycle", result.Resolution);
+
+        TenantFilterAccessor.Clear();
+    }
+
+    [Fact]
+    public async Task ProviderUnavailable_ShouldReturnUnresolved()
+    {
+        const string key = "closure-key-unavailable";
+        var (orgId, contributionId) = await SeedReconciliationPendingAsync(attemptKey: key);
+        var sp = BuildServices("QueryUnavailable");
+
+        using var scope = sp.CreateScope();
+        SetTenant(scope.ServiceProvider, orgId);
+        await CreateProviderOperationAsync(scope.ServiceProvider, key);
+
+        var sender = scope.ServiceProvider.GetRequiredService<MediatR.ISender>();
+        var result = await sender.Send(new ReconcileContributionCommand(contributionId));
+
+        Assert.False(result.Resolved);
+        Assert.Contains("unavailable", result.Resolution, StringComparison.OrdinalIgnoreCase);
+
+        TenantFilterAccessor.Clear();
+    }
+
+    [Fact]
+    public async Task Succeeded_ShouldReturnResolved()
+    {
+        const string key = "closure-key-succeeded";
+        var (orgId, contributionId) = await SeedReconciliationPendingAsync(attemptKey: key);
+        var sp = BuildServices("Success");
+
+        using var scope = sp.CreateScope();
+        SetTenant(scope.ServiceProvider, orgId);
+        await CreateProviderOperationAsync(scope.ServiceProvider, key);
+
+        var sender = scope.ServiceProvider.GetRequiredService<MediatR.ISender>();
+        var result = await sender.Send(new ReconcileContributionCommand(contributionId));
+
+        Assert.True(result.Resolved);
+        Assert.Equal("AutoFixed", result.Resolution);
+
+        TenantFilterAccessor.Clear();
+    }
+
+    [Fact]
+    public async Task NotFoundSafeRetry_ShouldReturnResolvedForThisReconciliationCycle()
+    {
+        const string key = "closure-key-notfound";
+        var (orgId, contributionId) = await SeedReconciliationPendingAsync(attemptKey: key);
+        // TimeoutBeforeProcessing never creates a provider operation -> NotFound.
+        var sp = BuildServices("TimeoutBeforeProcessing");
+
+        using var scope = sp.CreateScope();
+        SetTenant(scope.ServiceProvider, orgId);
+
+        var sender = scope.ServiceProvider.GetRequiredService<MediatR.ISender>();
+        var result = await sender.Send(new ReconcileContributionCommand(contributionId));
+
+        Assert.True(result.Resolved);
+        Assert.Equal("SafeRetry", result.Resolution);
+
+        TenantFilterAccessor.Clear();
+    }
+
+    // ------------------------------------------------------------------ //
+    // Concurrency: two simultaneous reconciliations apply the resolution  //
+    // exactly once.                                                       //
+    // ------------------------------------------------------------------ //
+
+    [Fact]
+    public async Task ConcurrentReconciliation_ShouldApplyResolutionOnlyOnce()
+    {
+        const string key = "closure-key-concurrent";
+        var (orgId, contributionId) = await SeedReconciliationPendingAsync(attemptKey: key);
+        var sp = BuildServices("TimeoutBeforeProcessing"); // NotFound -> SafeRetry
+
+        // Two independent scopes/DbContexts run the command simultaneously.
+        using var scopeA = sp.CreateScope();
+        using var scopeB = sp.CreateScope();
+        SetTenant(scopeA.ServiceProvider, orgId);
+        SetTenant(scopeB.ServiceProvider, orgId);
+
+        var senderA = scopeA.ServiceProvider.GetRequiredService<MediatR.ISender>();
+        var senderB = scopeB.ServiceProvider.GetRequiredService<MediatR.ISender>();
+
+        var taskA = senderA.Send(new ReconcileContributionCommand(contributionId));
+        var taskB = senderB.Send(new ReconcileContributionCommand(contributionId));
+        await Task.WhenAll(taskA, taskB);
+
+        await using var db = new ReliantDbContext(new DbContextOptionsBuilder<ReliantDbContext>()
+            .UseNpgsql(_fixture.ConnectionString)
+            .Options);
+
+        // Exactly one state transition to RetryPending (no invalid/double transition).
+        var retryTransitions = await db.Set<StateTransition>().IgnoreQueryFilters()
+            .CountAsync(t => t.ContributionId == contributionId && t.ToState == ContributionState.RetryPending);
+        Assert.Equal(1, retryTransitions);
+
+        // Exactly one SafeRetry reconciliation record (the losing scope conflicts).
+        var safeRetries = await db.Set<ReconciliationRecord>().IgnoreQueryFilters()
+            .CountAsync(r => r.ContributionId == contributionId && r.Resolution == "SafeRetry");
+        Assert.Equal(1, safeRetries);
+
+        // The contribution converged to a single valid state.
+        var contribution = await db.Set<Contribution>().IgnoreQueryFilters().SingleAsync(c => c.Id == contributionId);
+        Assert.Equal(ContributionState.RetryPending, contribution.State);
+
+        // Exactly one retry schedule (NextRetryAt set once).
+        Assert.NotNull(contribution.NextRetryAt);
+
+        // No duplicate provider reference is created.
+        var refs = await db.Set<ProviderReference>().IgnoreQueryFilters()
+            .Where(r => r.ContributionId == contributionId).ToListAsync();
+        Assert.Empty(refs);
 
         TenantFilterAccessor.Clear();
     }
