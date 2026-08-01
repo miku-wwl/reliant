@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -15,9 +16,10 @@ namespace Reliant.Worker.Handlers;
 
 public class ProcessingHandlerService(
     IServiceProvider serviceProvider,
+    IConfiguration configuration,
     ILogger<ProcessingHandlerService> logger) : BackgroundService
 {
-    private const string QueueName = "reliant-processing";
+    private readonly string QueueName = configuration["Queue:QueueName"] ?? "reliant-processing";
     private const int Concurrency = 10;
     private const int VisibilityTimeoutSeconds = 35;
     private const int LeaseSeconds = 30;

@@ -15,19 +15,54 @@ namespace Reliant.Tests.Integration;
 [Trait("Category", "Integration")]
 [Trait("Dependency", "LocalStack")]
 [Trait("Dependency", "WorkerHost")]
-public class FinalE2ETests : IClassFixture<WorkerHostFixture>
+public class FinalE2ETests
 {
-    private readonly WorkerHostFixture _fixture;
+    // NOTE: each test starts its OWN WorkerHostFixture (own PostgreSQL + LocalStack
+    // containers + worker host) so the two E2E scenarios are fully isolated - a
+    // shared host left in-flight background tasks that consumed the other test's
+    // messages, stalling convergence.
 
-    public FinalE2ETests(WorkerHostFixture fixture)
+    private static async Task<WorkerHostFixture> StartIsolatedWorkersAsync(
+        string providerMode, bool includeReconciliation = true)
     {
-        _fixture = fixture;
+        var fixture = new WorkerHostFixture();
+        await fixture.InitializeAsync();
+        await fixture.StartWorkersAsync(providerMode: providerMode, includeReconciliation: includeReconciliation);
+        await WaitForQueueReadyAsync(fixture, TimeSpan.FromSeconds(60));
+        return fixture;
     }
 
-    private ReliantDbContext CreateDbContext()
+    /// <summary>
+    /// The LocalStack container can report healthy before SQS is actually
+    /// reachable. Wait until the processing queue can be created/queried so the
+    /// Outbox Publisher and Processing Handler can deliver the message.
+    /// </summary>
+    private static async Task WaitForQueueReadyAsync(WorkerHostFixture fixture, TimeSpan timeout)
+    {
+        using var scope = fixture.Host.Services.CreateScope();
+        var queueAdapter = scope.ServiceProvider.GetRequiredService<IQueueAdapter>();
+        var deadline = DateTime.UtcNow + timeout;
+        Exception? last = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                await queueAdapter.GetOrCreateQueueAsync(fixture.QueueName);
+                return;
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+                await Task.Delay(500);
+            }
+        }
+        throw new TimeoutException($"Worker queue not reachable within {timeout}. Last error: {last?.Message}");
+    }
+
+    private static ReliantDbContext CreateDbContext(string pgConnectionString)
     {
         var options = new DbContextOptionsBuilder<ReliantDbContext>()
-            .UseNpgsql(_fixture.PgConnectionString)
+            .UseNpgsql(pgConnectionString)
             .Options;
         return new ReliantDbContext(options);
     }
@@ -96,35 +131,51 @@ public class FinalE2ETests : IClassFixture<WorkerHostFixture>
         return await condition();
     }
 
+    private async Task<string> DescribeStateAsync(string pgConnectionString, Guid contributionId, SandboxProvider? provider)
+    {
+        await using var db = CreateDbContext(pgConnectionString);
+        var c = await db.Set<Contribution>().IgnoreQueryFilters().FirstOrDefaultAsync(x => x.Id == contributionId);
+        var attempts = await db.Set<ProcessingAttempt>().IgnoreQueryFilters()
+            .Where(a => a.ContributionId == contributionId).Select(a => $"{a.AttemptNumber}:{a.Status}").ToListAsync();
+        var inboxes = await db.Set<InboxMessage>().IgnoreQueryFilters()
+            .Where(m => m.OrganizationId == c!.OrganizationId).Select(m => m.MessageId).ToListAsync();
+        var dead = await db.Set<DeadLetterRecord>().IgnoreQueryFilters().CountAsync();
+        return $"State={c?.State}, ProviderOp={provider?.OperationCount}, " +
+               $"Attempts=[{string.Join(",", attempts)}], Inbox=[{string.Join(",", inboxes)}], DeadLetters={dead}";
+    }
+
     [Fact]
     public async Task ProcessedResponseLost_WithDuplicateMessageAndCallback_ShouldConverge_WithoutSecondProviderEffect()
     {
         // Provider processes the operation but its response is lost -> Unknown ->
         // reconciliation must converge to Succeeded with exactly one provider effect.
-        await _fixture.StartWorkersAsync(providerMode: "ProcessedButResponseLost");
+        await using var fixture = await StartIsolatedWorkersAsync("ProcessedButResponseLost");
         try
         {
             Guid orgId;
             Guid contributionId;
-            using (var db = CreateDbContext())
+            using (var db = CreateDbContext(fixture.PgConnectionString))
             {
                 (orgId, contributionId) = await SeedCreatedContributionWithOutboxAsync(db);
             }
 
-            var provider = _fixture.Host.Services.GetRequiredService<IProvider>() as SandboxProvider;
+            var provider = fixture.Host.Services.GetRequiredService<IProvider>() as SandboxProvider;
             Assert.NotNull(provider);
 
             // 1) Real pipeline: Outbox -> SQS -> Worker -> Provider -> Reconciliation.
             var converged = await WaitUntilAsync(async () =>
             {
-                using var db = CreateDbContext();
+                using var db = CreateDbContext(fixture.PgConnectionString);
                 var c = await db.Set<Contribution>().IgnoreQueryFilters().FirstOrDefaultAsync(x => x.Id == contributionId);
                 return c?.State == ContributionState.Succeeded;
-            }, TimeSpan.FromSeconds(45));
+            }, TimeSpan.FromSeconds(90));
 
-            Assert.True(converged, "Contribution did not converge to Succeeded within timeout");
+            Assert.True(converged, "Contribution did not converge to Succeeded within timeout. " +
+                await DescribeStateAsync(fixture.PgConnectionString, contributionId, provider) +
+                $"\nSeededContributionId={contributionId}, SqsEndpoint={fixture.SqsEndpoint}, Queue={fixture.QueueName}\n" +
+                "\nWORKER LOGS:\n" + fixture.RecentLogs(60));
 
-            using (var db = CreateDbContext())
+            using (var db = CreateDbContext(fixture.PgConnectionString))
             {
                 var contribution = await db.Set<Contribution>().IgnoreQueryFilters().SingleAsync(c => c.Id == contributionId);
                 Assert.Equal(ContributionState.Succeeded, contribution.State);
@@ -137,11 +188,14 @@ public class FinalE2ETests : IClassFixture<WorkerHostFixture>
                     .Where(r => r.ContributionId == contributionId).ToListAsync();
                 Assert.Single(refs);
 
-                // The full state path was audited: Created->Processing (entry),
-                // Processing->ProviderUnknown, ProviderUnknown->ReconciliationPending,
-                // ReconciliationPending->Succeeded.
+                // The full state path was audited with one transition per change:
+                // Created->Accepted, Accepted->Processing, Processing->ProviderUnknown,
+                // ProviderUnknown->ReconciliationPending, ReconciliationPending->Succeeded.
                 var transitions = await db.Set<StateTransition>().IgnoreQueryFilters()
                     .Where(t => t.ContributionId == contributionId).ToListAsync();
+                Assert.Contains(transitions, t => t.FromState == ContributionState.Created && t.ToState == ContributionState.Accepted);
+                Assert.Contains(transitions, t => t.FromState == ContributionState.Accepted && t.ToState == ContributionState.Processing);
+                Assert.Contains(transitions, t => t.FromState == ContributionState.Processing && t.ToState == ContributionState.ProviderUnknown);
                 Assert.Contains(transitions, t => t.FromState == ContributionState.ProviderUnknown && t.ToState == ContributionState.ReconciliationPending);
                 Assert.Contains(transitions, t => t.FromState == ContributionState.ReconciliationPending && t.ToState == ContributionState.Succeeded);
 
@@ -155,28 +209,47 @@ public class FinalE2ETests : IClassFixture<WorkerHostFixture>
                 Assert.Empty(deadLetters);
             }
 
-            // 2) Duplicate callback: no second business effect, no new transition.
-            using (var scope = _fixture.Host.Services.CreateScope())
+            // 2) Duplicate callback: the SAME EventId is delivered twice. Only the
+            //    first may apply; the second is an idempotent terminal confirmation.
+            using (var scope = fixture.Host.Services.CreateScope())
             {
                 var sender = scope.ServiceProvider.GetRequiredService<MediatR.ISender>();
                 var keyFactory = scope.ServiceProvider.GetRequiredService<IProviderOperationKeyFactory>();
                 var idempotencyKey = keyFactory.CreateContributionSubmitKey(orgId, contributionId, "sandbox");
 
-                var callback = await sender.Send(new HandleProviderCallbackCommand(new ProviderCallbackPayload(
+                var command = new HandleProviderCallbackCommand(new ProviderCallbackPayload(
                     EventId: "e2e-callback-1",
                     EventType: "contribution.submit",
                     ProviderReference: null,
                     IdempotencyKey: idempotencyKey,
                     Status: "succeeded",
                     OccurredAt: DateTime.UtcNow.ToString("O"),
-                    Version: 1)));
+                    Version: 1));
 
-                Assert.Equal(200, callback.StatusCode);
+                var first = await sender.Send(command);
+                var duplicate = await sender.Send(command);
+
+                Assert.Equal(200, first.StatusCode);
+                Assert.Equal(200, duplicate.StatusCode);
                 Assert.Equal(1, provider!.OperationCount);
+
+                await using var db = CreateDbContext(fixture.PgConnectionString);
+                var callbackInboxes = await db.Set<InboxMessage>().IgnoreQueryFilters()
+                    .Where(m => m.MessageId == "callback-e2e-callback-1").ToListAsync();
+                Assert.Single(callbackInboxes);
+
+                // The contribution is already Succeeded (via reconciliation), so the
+                // duplicate terminal confirmation must create NO additional state change.
+                var callbackTransitions = await db.Set<StateTransition>().IgnoreQueryFilters()
+                    .Where(t => t.ContributionId == contributionId
+                        && t.ToState == ContributionState.Succeeded
+                        && t.Reason.Contains("Callback"))
+                    .ToListAsync();
+                Assert.Empty(callbackTransitions);
             }
 
             // 3) Duplicate message redelivery: inbox dedup prevents reprocessing.
-            using (var db = CreateDbContext())
+            using (var db = CreateDbContext(fixture.PgConnectionString))
             {
                 var contribution = await db.Set<Contribution>().IgnoreQueryFilters().SingleAsync(c => c.Id == contributionId);
                 db.Set<OutboxMessage>().Add(new OutboxMessage
@@ -203,7 +276,7 @@ public class FinalE2ETests : IClassFixture<WorkerHostFixture>
             await Task.Delay(TimeSpan.FromSeconds(5));
             Assert.Equal(1, provider!.OperationCount);
 
-            using (var db = CreateDbContext())
+            using (var db = CreateDbContext(fixture.PgConnectionString))
             {
                 var refs = await db.Set<ProviderReference>().IgnoreQueryFilters()
                     .Where(r => r.ContributionId == contributionId).ToListAsync();
@@ -212,7 +285,95 @@ public class FinalE2ETests : IClassFixture<WorkerHostFixture>
         }
         finally
         {
-            await _fixture.StopWorkersAsync();
+            // The fixture is disposed via await using; nothing else to stop.
+        }
+    }
+
+    [Fact]
+    public async Task CallbackBeforeReconciliation_WithDuplicateEvent_ShouldConvergeOnce()
+    {
+        // The callback (same EventId twice) moves the contribution to Succeeded
+        // BEFORE reconciliation runs; a later reconciliation must not overwrite it
+        // and the duplicate callback must not create a second state change.
+        await using var fixture = await StartIsolatedWorkersAsync("ProcessedButResponseLost", includeReconciliation: false);
+        try
+        {
+            Guid orgId;
+            Guid contributionId;
+            using (var db = CreateDbContext(fixture.PgConnectionString))
+            {
+                (orgId, contributionId) = await SeedCreatedContributionWithOutboxAsync(db);
+            }
+
+            var provider = fixture.Host.Services.GetRequiredService<IProvider>() as SandboxProvider;
+            Assert.NotNull(provider);
+
+            // Wait until the worker has recorded the unknown outcome and parked the
+            // contribution in ReconciliationPending (reconciliation is disabled).
+            var parked = await WaitUntilAsync(async () =>
+            {
+                using var db = CreateDbContext(fixture.PgConnectionString);
+                var c = await db.Set<Contribution>().IgnoreQueryFilters().FirstOrDefaultAsync(x => x.Id == contributionId);
+                return c?.State == ContributionState.ReconciliationPending;
+            }, TimeSpan.FromSeconds(90));
+            Assert.True(parked, "Contribution did not reach ReconciliationPending. " +
+                await DescribeStateAsync(fixture.PgConnectionString, contributionId, provider) +
+                "\n\nWORKER LOGS:\n" + fixture.RecentLogs(60));
+
+            using (var scope = fixture.Host.Services.CreateScope())
+            {
+                var sender = scope.ServiceProvider.GetRequiredService<MediatR.ISender>();
+                var keyFactory = scope.ServiceProvider.GetRequiredService<IProviderOperationKeyFactory>();
+                var idempotencyKey = keyFactory.CreateContributionSubmitKey(orgId, contributionId, "sandbox");
+
+                var command = new HandleProviderCallbackCommand(new ProviderCallbackPayload(
+                    EventId: "e2e-callback-before-recon",
+                    EventType: "contribution.submit",
+                    ProviderReference: null,
+                    IdempotencyKey: idempotencyKey,
+                    Status: "succeeded",
+                    OccurredAt: DateTime.UtcNow.ToString("O"),
+                    Version: 1));
+
+                var first = await sender.Send(command);
+                var duplicate = await sender.Send(command);
+                Assert.Equal(200, first.StatusCode);
+                Assert.Equal(200, duplicate.StatusCode);
+                Assert.Equal(1, provider!.OperationCount);
+
+                // A later reconciliation must observe Succeeded and skip.
+                var reconcile = await sender.Send(new ReconcileContributionCommand(contributionId));
+                Assert.Contains("skipping", reconcile.Resolution, StringComparison.OrdinalIgnoreCase);
+            }
+
+            using (var db = CreateDbContext(fixture.PgConnectionString))
+            {
+                var contribution = await db.Set<Contribution>().IgnoreQueryFilters().SingleAsync(c => c.Id == contributionId);
+                Assert.Equal(ContributionState.Succeeded, contribution.State);
+                Assert.Equal(1, provider!.OperationCount);
+
+                var refs = await db.Set<ProviderReference>().IgnoreQueryFilters()
+                    .Where(r => r.ContributionId == contributionId).ToListAsync();
+                // With reconciliation disabled, the lost-response reference is never
+                // revealed, so no local ProviderReference is persisted yet.
+                Assert.Empty(refs);
+
+                var callbackInboxes = await db.Set<InboxMessage>().IgnoreQueryFilters()
+                    .Where(m => m.MessageId == "callback-e2e-callback-before-recon").ToListAsync();
+                Assert.Single(callbackInboxes);
+
+                var callbackTransitions = await db.Set<StateTransition>().IgnoreQueryFilters()
+                    .Where(t => t.ContributionId == contributionId
+                        && t.FromState == ContributionState.ReconciliationPending
+                        && t.ToState == ContributionState.Succeeded
+                        && t.Reason.Contains("Callback"))
+                    .ToListAsync();
+                Assert.Single(callbackTransitions);
+            }
+        }
+        finally
+        {
+            // The fixture is disposed via await using; nothing else to stop.
         }
     }
 }

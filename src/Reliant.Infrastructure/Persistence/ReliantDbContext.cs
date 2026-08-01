@@ -27,6 +27,15 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
     public DbSet<Checkpoint> Checkpoints => Set<Checkpoint>();
     public DbSet<DeadLetterRecord> DeadLetterRecords => Set<DeadLetterRecord>();
 
+    /// <summary>
+    /// Current tenant org id. Referenced by the global query filters as an INSTANCE
+    /// member so EF Core re-evaluates it for every query against this context instead
+    /// of baking the static AsyncLocal value into the process-wide compiled query
+    /// cache (which would leak one tenant's filter into another host in the same
+    /// process).
+    /// </summary>
+    public Guid TenantOrganizationId => TenantFilterAccessor.CurrentOrganizationId;
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Organization>(e =>
@@ -64,7 +73,7 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.Description).HasMaxLength(1000);
             e.Property(x => x.Status).HasConversion<int>();
             e.Property(x => x.Version).IsConcurrencyToken();
-            e.HasQueryFilter(x => x.OrganizationId == TenantFilterAccessor.CurrentOrganizationId);
+            e.HasQueryFilter(x => x.OrganizationId == TenantOrganizationId);
         });
 
         modelBuilder.Entity<Contribution>(e =>
@@ -80,7 +89,7 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.LastErrorMessage).HasMaxLength(2000);
             e.HasIndex(x => new { x.OrganizationId, x.CampaignId });
             e.HasIndex(x => new { x.State, x.NextRetryAt });
-            e.HasQueryFilter(x => x.OrganizationId == TenantFilterAccessor.CurrentOrganizationId);
+            e.HasQueryFilter(x => x.OrganizationId == TenantOrganizationId);
         });
 
         modelBuilder.Entity<IdempotencyRecord>(e =>
@@ -90,7 +99,7 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.IdempotencyKey).HasMaxLength(64).IsRequired();
             e.Property(x => x.RequestHash).HasMaxLength(512).IsRequired();
             e.HasIndex(x => new { x.OrganizationId, x.IdempotencyKey }).IsUnique();
-            e.HasQueryFilter(x => x.OrganizationId == TenantFilterAccessor.CurrentOrganizationId);
+            e.HasQueryFilter(x => x.OrganizationId == TenantOrganizationId);
         });
 
         modelBuilder.Entity<StateTransition>(e =>
@@ -114,7 +123,7 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.ChangedBy).HasMaxLength(128).IsRequired();
             e.Property(x => x.CorrelationId).HasMaxLength(128).IsRequired();
             e.HasIndex(x => new { x.OrganizationId, x.EntityType, x.EntityId });
-            e.HasQueryFilter(x => x.OrganizationId == TenantFilterAccessor.CurrentOrganizationId);
+            e.HasQueryFilter(x => x.OrganizationId == TenantOrganizationId);
         });
 
         modelBuilder.Entity<OutboxMessage>(e =>
@@ -128,7 +137,7 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.Status).HasConversion<int>();
             e.Property(x => x.Version).IsConcurrencyToken();
             e.HasIndex(x => new { x.Status, x.OccurredAt });
-            e.HasQueryFilter(x => x.OrganizationId == TenantFilterAccessor.CurrentOrganizationId);
+            e.HasQueryFilter(x => x.OrganizationId == TenantOrganizationId);
         });
 
         modelBuilder.Entity<InboxMessage>(e =>
@@ -141,7 +150,7 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.HandlerVersion).HasMaxLength(32).IsRequired();
             e.Property(x => x.Status).HasConversion<int>();
             e.HasIndex(x => x.MessageId).IsUnique();
-            e.HasQueryFilter(x => x.OrganizationId == TenantFilterAccessor.CurrentOrganizationId);
+            e.HasQueryFilter(x => x.OrganizationId == TenantOrganizationId);
         });
 
         modelBuilder.Entity<JobDefinition>(e =>
@@ -163,7 +172,7 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.Status).HasConversion<int>();
             e.Property(x => x.Version).IsConcurrencyToken();
             e.HasIndex(x => new { x.OrganizationId, x.Status });
-            e.HasQueryFilter(x => x.OrganizationId == TenantFilterAccessor.CurrentOrganizationId);
+            e.HasQueryFilter(x => x.OrganizationId == TenantOrganizationId);
         });
 
         modelBuilder.Entity<JobAttempt>(e =>
@@ -206,7 +215,7 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.ErrorMessage).HasMaxLength(2000);
             e.Property(x => x.Status).HasConversion<int>();
             e.HasIndex(x => new { x.OrganizationId, x.Status });
-            e.HasQueryFilter(x => x.OrganizationId == TenantFilterAccessor.CurrentOrganizationId);
+            e.HasQueryFilter(x => x.OrganizationId == TenantOrganizationId);
         });
 
         modelBuilder.Entity<ProcessingAttempt>(e =>
@@ -233,7 +242,7 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.ProviderName).HasMaxLength(64).IsRequired();
             e.HasIndex(x => x.ContributionId).IsUnique();
             e.HasIndex(x => new { x.ProviderName, x.Reference }).IsUnique();
-            e.HasQueryFilter(x => x.OrganizationId == TenantFilterAccessor.CurrentOrganizationId);
+            e.HasQueryFilter(x => x.OrganizationId == TenantOrganizationId);
         });
 
         modelBuilder.Entity<ReconciliationRecord>(e =>

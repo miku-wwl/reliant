@@ -15,6 +15,7 @@ public class OutboxPublisherService(
 {
     private const int BatchSize = 50;
     private const int MaxSendAttempts = 10;
+    private readonly string _defaultProcessingQueue = configuration["Queue:QueueName"] ?? "reliant-processing";
     private readonly TimeSpan _pollInterval = TimeSpan.FromMilliseconds(
         configuration.GetValue<int?>("Worker:Outbox:IntervalMs") ?? 2000);
 
@@ -40,9 +41,8 @@ public class OutboxPublisherService(
                     {
                         var queueName = message.MessageType switch
                         {
-                            "ContributionCreated" => "reliant-processing",
                             "ContributionSucceeded" => "reliant-notification",
-                            _ => "reliant-processing"
+                            _ => _defaultProcessingQueue
                         };
 
                         await queuePublisher.PublishAsync(queueName, message.MessageType, message.Payload, message.Id.ToString(), stoppingToken);

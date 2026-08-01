@@ -2,11 +2,13 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Reliant.Application;
 using Reliant.Infrastructure;
 using Reliant.Infrastructure.Persistence;
 using Reliant.Worker.Handlers;
 using Reliant.Worker.Scheduling;
+using System.Collections.Concurrent;
 using Testcontainers.LocalStack;
 using Testcontainers.PostgreSql;
 
@@ -31,11 +33,60 @@ public sealed class WorkerHostFixture : IAsyncLifetime
         .WithImage("localstack/localstack:3")
         .Build();
 
+    private readonly InMemoryLoggerProvider _loggerProvider = new();
     private IHost? _host;
 
     public string PgConnectionString => _pg.GetConnectionString();
     public string SqsEndpoint => _localStack.GetConnectionString();
+
+    /// <summary>
+    /// LocalStack persists SQS state in a shared volume that survives container
+    /// disposal, so queues left by a previous fixture in the same test process leak
+    /// into this one. A per-instance queue name guarantees the workers only ever see
+    /// their own messages regardless of LocalStack persistence.
+    /// </summary>
+    public string QueueName { get; } = $"reliant-processing-{Guid.NewGuid():N}";
+
     public IHost Host => _host ?? throw new InvalidOperationException("Worker host not started");
+
+    /// <summary>Recent worker log lines (for failure diagnostics).</summary>
+    public IReadOnlyList<string> LogLines => _loggerProvider.Lines.ToArray();
+
+    /// <summary>Last <paramref name="count"/> log lines, oldest first.</summary>
+    public string RecentLogs(int count = 40)
+        => string.Join(Environment.NewLine, _loggerProvider.Lines.TakeLast(count));
+
+    /// <summary>Minimal in-memory logger provider so tests can inspect worker activity.</summary>
+    private sealed class InMemoryLoggerProvider : ILoggerProvider
+    {
+        public ConcurrentQueue<string> Lines { get; } = new();
+        public ILogger CreateLogger(string categoryName) => new Logger(categoryName, Lines);
+        public void Dispose() { }
+
+        private sealed class Logger(string categoryName, ConcurrentQueue<string> lines) : ILogger
+        {
+            private static readonly string[] _noisePrefixes =
+            [
+                "Microsoft.EntityFrameworkCore",
+                "Microsoft.Hosting",
+                "Microsoft.Extensions.Hosting"
+            ];
+
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+            public bool IsEnabled(LogLevel logLevel) => true;
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            {
+                // Skip EF/hosting noise so the buffer holds only worker-relevant logs.
+                if (_noisePrefixes.Any(p => categoryName.StartsWith(p, StringComparison.Ordinal)))
+                    return;
+
+                var line = $"{DateTime.UtcNow:HH:mm:ss.fff} [{logLevel}] {categoryName}: {formatter(state, exception)}";
+                if (exception is not null) line += $" :: {exception.GetType().Name}: {exception.Message}";
+                while (lines.Count > 5000) lines.TryDequeue(out _);
+                lines.Enqueue(line);
+            }
+        }
+    }
 
     public async Task InitializeAsync()
     {
@@ -60,6 +111,7 @@ public sealed class WorkerHostFixture : IAsyncLifetime
             ["ConnectionStrings:PostgreSQL"] = _pg.GetConnectionString(),
             ["Queue:Endpoint"] = _localStack.GetConnectionString(),
             ["Queue:Region"] = "us-west-1",
+            ["Queue:QueueName"] = QueueName,
             ["Provider:Mode"] = providerMode,
             ["Provider:Secret"] = "sandbox-secret-key",
             ["Worker:Outbox:IntervalMs"] = "300",
@@ -71,6 +123,8 @@ public sealed class WorkerHostFixture : IAsyncLifetime
         builder.Services.AddReliantInfrastructure(builder.Configuration);
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddScoped<IRetryScheduler, RetrySchedulerService>();
+        builder.Logging.ClearProviders();
+        builder.Logging.AddProvider(_loggerProvider);
         builder.Services.AddHostedService<OutboxPublisherService>();
         if (includeProcessing) builder.Services.AddHostedService<ProcessingHandlerService>();
         if (includeReconciliation) builder.Services.AddHostedService<ReconciliationHandlerService>();

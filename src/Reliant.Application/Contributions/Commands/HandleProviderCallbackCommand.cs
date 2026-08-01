@@ -113,6 +113,11 @@ public class HandleProviderCallbackHandler(
         {
             if (contribution.State == ContributionState.Succeeded)
             {
+                // Terminal confirmation of an already-succeeded contribution:
+                // record the processed inbox (deduped by MessageId) but add no
+                // new state transition or business effect.
+                await WriteInboxAsync(payload, contribution.OrganizationId, ct);
+                await unitOfWork.TrySaveChangesAsync(ct);
                 return new CallbackHandleResult(200, "Already succeeded");
             }
 
@@ -137,6 +142,9 @@ public class HandleProviderCallbackHandler(
         {
             if (contribution.State == ContributionState.Failed)
             {
+                // Terminal confirmation of an already-failed contribution.
+                await WriteInboxAsync(payload, contribution.OrganizationId, ct);
+                await unitOfWork.TrySaveChangesAsync(ct);
                 return new CallbackHandleResult(200, "Already failed");
             }
 
