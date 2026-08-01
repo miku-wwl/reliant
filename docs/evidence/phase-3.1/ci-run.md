@@ -4,12 +4,19 @@ This document records the Phase 3.1 Final Gate CI evidence: the commit, the
 workflow, the environment, and the verified test counts (the same
 `scripts/verify.ps1` gate that GitHub Actions runs).
 
-- **Commit SHA:** `39b492c` (Phase 3.1 Commit 19)
-- **Workflow Run:** GitHub Actions `CI` on `miku-wwl/reliant` (triggered on push of the commit above)
+## Actual run (2026-08-02)
+
+- **Commit SHA:** `9cecfe5` (pushed to `main`; includes Phase 3.1 Commits 11-20)
+- **Workflow Run:** https://github.com/miku-wwl/reliant/actions/runs/30720948018 (job 91424539349)
+- **Result:** **Success** (3m 11s) - all `verify.ps1` steps green
+- **Artifact:** `reliant-test-results` (34.3 KB,
+  sha256 `0b9c339752108ee2849a433961f24f593d68426c48f422e9ff91df92ac9d3007`)
 - **Runner:** `ubuntu-latest`
 - **.NET SDK:** `10.0.x` (actions/setup-dotnet@v4)
 - **PostgreSQL image:** `postgres:17` (Testcontainers)
 - **LocalStack image:** `localstack/localstack:3` (Testcontainers)
+- **Warnings:** 9 (non-fatal: Node 20 deprecation on runner actions, obsolete
+  `AttributeNames` SDK API, unread constructor parameters) - none affect PASS
 
 ## Verification steps (scripts/verify.ps1)
 
@@ -20,7 +27,7 @@ workflow, the environment, and the verified test counts (the same
 5. Execute unit, architecture and integration tests with TRX logging
 6. Write `artifacts/test-summary.md`
 
-## Verified test counts (2026-08-02, local verify.ps1)
+## Verified test counts (2026-08-02, CI run 30720948018)
 
 | Category | Filter | Count | Minimum |
 |----------|--------|------:|--------:|
@@ -36,7 +43,7 @@ workflow, the environment, and the verified test counts (the same
 - **Unit:** 65 passed, 0 failed
 - **Architecture:** 5 passed, 0 failed
 - **Integration:** 76 passed, 0 failed (PostgreSQL + LocalStack + WorkerHost E2E + HttpApi)
-- **Result:** PASS (all categories matched their minimums; all executed suites green)
+- **Result:** **PASS** - all categories matched their minimums; all executed suites green (verified by CI run `30720948018`)
 
 ## Artifacts (uploaded by the workflow)
 
