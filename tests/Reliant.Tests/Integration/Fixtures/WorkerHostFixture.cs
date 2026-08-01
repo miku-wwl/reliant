@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Reliant.Application;
+using Reliant.Application.Abstractions;
 using Reliant.Application.Messaging;
 using Reliant.Infrastructure;
 using Reliant.Infrastructure.Persistence;
@@ -107,7 +108,8 @@ public sealed class WorkerHostFixture : IAsyncLifetime
         bool includeProcessing = true,
         bool includeReconciliation = true,
         IWorkerFaultInjector? faultInjector = null,
-        int visibilityTimeoutSeconds = 35)
+        int visibilityTimeoutSeconds = 35,
+        IQueueAdapter? queueAdapterOverride = null)
     {
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(
             new HostApplicationBuilderSettings { Args = Array.Empty<string>() });
@@ -132,6 +134,8 @@ public sealed class WorkerHostFixture : IAsyncLifetime
         builder.Services.AddScoped<IRetryScheduler, RetrySchedulerService>();
         if (faultInjector is not null)
             builder.Services.AddSingleton<IWorkerFaultInjector>(faultInjector);
+        if (queueAdapterOverride is not null)
+            builder.Services.AddSingleton<IQueueAdapter>(queueAdapterOverride);
         builder.Logging.ClearProviders();
         builder.Logging.AddProvider(_loggerProvider);
         builder.Services.AddHostedService<OutboxPublisherService>();
