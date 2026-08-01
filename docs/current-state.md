@@ -1,14 +1,18 @@
 # Reliant - Current State
 
-> 最后更新：Phase 3.1（Reliability Gate Closure）
+> 最后更新：Phase 3.1（Reliability Gate Closure）— Completed
 
 ## Phase 3.1 状态
 
 ```text
-Phase 3.1 — In Progress
+Phase 3.1 — Completed
 
-Core reliability mechanisms implemented and verified end-to-end:
-Outbox -> SQS -> Worker -> Provider -> Reconciliation -> Callback.
+All 10 Final Gates PASS (146 tests) with CI evidence:
+Outbox -> SQS -> Worker -> Provider -> Reconciliation -> Callback proven
+end-to-end over PostgreSQL (Testcontainers) + LocalStack SQS + a real worker host.
+
+Evidence pack: docs/evidence/phase-3.1/
+CI evidence: docs/evidence/phase-3.1/ci-run.md
 ```
 
 ## 当前能力状态

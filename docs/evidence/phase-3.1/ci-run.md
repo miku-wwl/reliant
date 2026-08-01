@@ -4,7 +4,7 @@ This document records the Phase 3.1 Final Gate CI evidence: the commit, the
 workflow, the environment, and the verified test counts (the same
 `scripts/verify.ps1` gate that GitHub Actions runs).
 
-- **Commit SHA:** `d77fcb9` (Phase 3.1 Commit 19)
+- **Commit SHA:** `39b492c` (Phase 3.1 Commit 19)
 - **Workflow Run:** GitHub Actions `CI` on `miku-wwl/reliant` (triggered on push of the commit above)
 - **Runner:** `ubuntu-latest`
 - **.NET SDK:** `10.0.x` (actions/setup-dotnet@v4)

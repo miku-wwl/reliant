@@ -1,55 +1,55 @@
 # Phase 3.1 Evidence Pack
 
 > Evidence Level: E1 (Testcontainers PostgreSQL) + E2 (LocalStack SQS + WorkerHost E2E)
-> Baseline: `70d404f7775856c3a833c9eef879e9a52a0c29a5`
+> Baseline: `fc345f5` (Round 2 closure). Verified at Commit 19 (`39b492c`).
+> Status: **Phase 3.1 — Completed** (all 10 Final Gates PASS, CI evidence present).
 
-## Test Counts
+## Test Counts (scripts/verify.ps1 gates)
 
-| Category | Count | Status |
-| --- | --- | --- |
-| Unit | 61 | PASS |
-| Architecture | 5 | PASS |
-| Integration (PostgreSQL) | 45 | PASS |
-| Integration (LocalStack SQS) | 5 | PASS |
-| End-to-End (WorkerHost) | 1 | PASS |
-| **Total** | **117** | **PASS** |
+| Category | Filter | Count | Status |
+| --- | --- | --- | --- |
+| Unit | `Category=Unit` | 65 | PASS |
+| Architecture | `Category=Architecture` | 5 | PASS |
+| PostgreSQL Integration | `Category=Integration&Dependency=PostgreSQL` | 52 | PASS |
+| LocalStack Integration | `Category=Integration&Dependency=LocalStack` | 15 | PASS |
+| HttpApi Integration | `Category=Integration&Dependency=HttpApi` | 9 | PASS |
+| WorkerHost E2E | `Category=Integration&Dependency=WorkerHost` | 10 | PASS |
+| **Integration total** | `Category=Integration` | **76** | PASS |
+| **Total** | | **146** | **PASS** |
 
 ## Gate Results
 
-| Gate | Result | Exact Evidence |
-| --- | --- | --- |
-| 1 Provider Idempotency | PASS | `ProviderConcurrencyTests`: concurrent submit -> 1 op + 1 reference; atomic `GetOrAdd`; `UNIQUE(ContributionId,AttemptNumber)` + `UNIQUE(ProviderName,Reference)`; same key/different payload -> conflict |
-| 2 Unknown Outcome | PASS | `ReconciliationDecisionTableTests.ProviderSucceeded...` + `FinalE2ETests`: response lost -> converges to Succeeded, provider effect = 1 |
-| 3 Safe Retry | PASS | `RetryMessageContractTests.ProviderNotFound...`: NotFound -> RetryPending + NextRetryAt; retry reuses same idempotency key |
-| 4 Reconciliation | PASS | `ReconciliationDecisionTableTests` (7): Succeeded/Failed/Pending/NotFound/Unavailable/Missing/Max + concurrent safe exit |
-| 5 Callback | PASS | `CallbackTests` (10): Reference/Key lookup, orphan persisted, DB unique dedup, concurrent dedup, before-response, terminal conflict |
-| 6 Retry Scheduling | PASS | `RetrySchedulingTests` (5): not-due no dispatch, due exactly one outbox, concurrent schedulers dispatch once, max -> Failed/DLQ/alert, retry count persists |
-| 7 Circuit Breaker | PASS | `CircuitBreakerTests` (11) + `CircuitBreakerIntegrationTests` (4): Open no provider/no attempt/no budget; single half-open probe; TimeProvider |
-| 8 Crash Recovery | PASS | `CrashRecoveryTests` (3): crash after attempt persisted, crash before response handled, inbox dedup on redelivery |
-| 9 Integration Evidence | PASS | `LocalStackSqsTests` (5) + `FinalE2ETests` (1): real SQS send/receive/delete/visibility/redelivery + full worker host E2E |
-| 10 Documentation | PASS | `current-state.md`, this pack, ADR status |
+| Gate | Result | Evidence doc | Exact Evidence |
+| --- | --- | --- | --- |
+| 1 Provider Idempotency | PASS | `provider-idempotency.md` | `ProviderConcurrencyTests` (6) + `ProviderIdempotencyTests` + `DuplicateMessageE2ETests` (Scenario B) + `SafeRetryE2ETests`: 1 op / 1 reference under concurrency, retry, redelivery, new message |
+| 2 Unknown Outcome | PASS | `unknown-outcome.md` | `FinalE2ETests.ProcessedResponseLost...` + `StateTransitionAuditTests.UnknownOutcome...`: response lost -> Succeeded, effect = 1 |
+| 3 Safe Retry | PASS | `retry-scheduling.md` | `SafeRetryE2ETests.TimeoutBeforeProcessing...`: NotFound -> RetryPending -> scheduler -> worker -> Success, same key |
+| 4 Reconciliation | PASS | `reconciliation.md` | `ReconciliationDecisionTableTests` (7) + `ReconciliationClosureTests` (7) incl `ConcurrentReconciliation_ShouldApplyResolutionOnlyOnce`; ManualRequired -> Resolved=false |
+| 5 Callback | PASS | `callback-security.md`, `callback-ordering.md` | `CallbackSecurityHttpTests` (9 HTTP) + `CallbackTests` (10) + `FinalE2ETests` duplicate callback/ordering |
+| 6 Retry Scheduling | PASS | `retry-scheduling.md` | `RetrySchedulingTests` (5) + `RetryMessageContractTests` (3): due/not-due, concurrent single dispatch, max -> DLQ |
+| 7 Circuit Breaker | PASS | `circuit-breaker.md` | `CircuitBreakerTests` (11) + `CircuitBreakerIntegrationTests` (4) + `CircuitOpenE2ETests`: open no-ack + ApproximateReceiveCount >= 2 |
+| 8 Crash Recovery | PASS | `crash-recovery.md` | `CrashRecoveryTests` (3) + `CrashBeforeAckE2ETests` + `DuplicateMessageE2ETests`: crash-before-ACK redelivery dedup, effect = 1 |
+| 9 Integration Evidence | PASS | `localstack-sqs.md`, `final-e2e.md` | `LocalStackSqsTests` (5) + 5 E2E classes (10 tests): real SQS send/receive/delete/visibility/redelivery/counters |
+| 10 Documentation & CI | PASS | `ci-run.md`, this pack, `current-state.md` | verify.ps1 test-count gate (0-match fails), TRX artifacts, test-summary, ADR-0017~0022 Accepted |
 
-## Final E2E Assertions (Definition of Done)
+## Evidence index
 
-Test: `ProcessedResponseLost_WithDuplicateMessageAndCallback_ShouldConverge_WithoutSecondProviderEffect`
-
-```text
-ProviderOperationCount == 1          (asserted)
-ProviderReferenceCount == 1          (asserted)
-Contribution.State == Succeeded      (asserted)
-Processing->ProviderUnknown->ReconciliationPending->Succeeded transitions present
-UnresolvedReconciliationCount == 0   (asserted)
-DuplicateBusinessEffectCount == 0    (asserted via op count + reference count)
-No unexpected DeadLetterRecord       (asserted)
-```
-
-Real pipeline executed: Outbox -> LocalStack SQS -> Processing Worker -> Sandbox
-Provider (ProcessedButResponseLost) -> Unknown -> Reconciliation -> Succeeded ->
-duplicate callback -> duplicate message (inbox dedup) -> no second provider effect.
+- [`provider-idempotency.md`](provider-idempotency.md) — Gate 1
+- [`unknown-outcome.md`](unknown-outcome.md) — Gate 2
+- [`reconciliation.md`](reconciliation.md) — Gate 4
+- [`callback-security.md`](callback-security.md) — Gate 5 (security)
+- [`callback-ordering.md`](callback-ordering.md) — Gate 5 (ordering)
+- [`retry-scheduling.md`](retry-scheduling.md) — Gates 3 & 6
+- [`circuit-breaker.md`](circuit-breaker.md) — Gate 7
+- [`crash-recovery.md`](crash-recovery.md) — Gate 8
+- [`localstack-sqs.md`](localstack-sqs.md) — Gate 9
+- [`final-e2e.md`](final-e2e.md) — Definition of Done
+- [`ci-run.md`](ci-run.md) — CI evidence (commit, workflow, counts)
+- [`known-limitations.md`](known-limitations.md) — non-blocking limitations
+- [`test-summary.md`](test-summary.md) — full test inventory
 
 ## Known Limitations
 
-- Notification Handler is still a skeleton (out of Phase 3.1 gate scope).
-- Real AWS (E4) smoke not performed; LocalStack E2 used.
-- API-level HTTP callback signature tests (401 paths) are covered by
-  `ProviderCallbackVerifier` unit logic; full HTTP surface deferred to E4.
+See [`known-limitations.md`](known-limitations.md). Non-blocking: real AWS (E4)
+smoke not performed; Notification Handler is a skeleton (out of gate scope);
+secret vault rotation, retry-policy config and circuit tuning not exposed.
