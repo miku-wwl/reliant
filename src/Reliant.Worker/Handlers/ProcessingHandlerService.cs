@@ -21,7 +21,7 @@ public class ProcessingHandlerService(
 {
     private readonly string QueueName = configuration["Queue:QueueName"] ?? "reliant-processing";
     private const int Concurrency = 10;
-    private const int VisibilityTimeoutSeconds = 35;
+    private readonly int VisibilityTimeoutSeconds = configuration.GetValue<int?>("Worker:VisibilityTimeoutSeconds") ?? 35;
     private const int LeaseSeconds = 30;
     private const int HeartbeatIntervalMs = 10000;
     private static readonly RetryPolicy RetryPolicy = new();

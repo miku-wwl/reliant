@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Reliant.Application;
+using Reliant.Application.Messaging;
 using Reliant.Infrastructure;
 using Reliant.Infrastructure.Persistence;
 using Reliant.Worker.Handlers;
@@ -101,7 +102,12 @@ public sealed class WorkerHostFixture : IAsyncLifetime
         await db.Database.MigrateAsync();
     }
 
-    public async Task StartWorkersAsync(string providerMode = "Success", bool includeProcessing = true, bool includeReconciliation = true)
+    public async Task StartWorkersAsync(
+        string providerMode = "Success",
+        bool includeProcessing = true,
+        bool includeReconciliation = true,
+        IWorkerFaultInjector? faultInjector = null,
+        int visibilityTimeoutSeconds = 35)
     {
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(
             new HostApplicationBuilderSettings { Args = Array.Empty<string>() });
@@ -116,13 +122,16 @@ public sealed class WorkerHostFixture : IAsyncLifetime
             ["Provider:Secret"] = "sandbox-secret-key",
             ["Worker:Outbox:IntervalMs"] = "300",
             ["Worker:Reconciliation:IntervalMs"] = "300",
-            ["Worker:Maintenance:IntervalMs"] = "300"
+            ["Worker:Maintenance:IntervalMs"] = "300",
+            ["Worker:VisibilityTimeoutSeconds"] = visibilityTimeoutSeconds.ToString()
         });
 
         builder.Services.AddReliantApplication();
         builder.Services.AddReliantInfrastructure(builder.Configuration);
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddScoped<IRetryScheduler, RetrySchedulerService>();
+        if (faultInjector is not null)
+            builder.Services.AddSingleton<IWorkerFaultInjector>(faultInjector);
         builder.Logging.ClearProviders();
         builder.Logging.AddProvider(_loggerProvider);
         builder.Services.AddHostedService<OutboxPublisherService>();
