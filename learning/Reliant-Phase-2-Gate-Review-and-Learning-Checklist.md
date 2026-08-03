@@ -855,17 +855,17 @@ Worker A 的 Lease 过期并由 Worker B 接管后，即使 Worker A 只是暂�
 
 ### 步骤
 
-- [ ] JobRun 持久化单调递增的 Fencing Token
-- [ ] Worker A 获取 Job，并记录 Token=N
-- [ ] 在业务 Commit 前暂停 Worker A，而不是终止进程
-- [ ] 等待 Lease 过期并由 Scanner 释放旧 Owner
-- [ ] Worker B 获取同一 Job，并得到 Token=N+1
-- [ ] Worker B 完成业务处理并提交
-- [ ] 恢复 Worker A，让它尝试使用 Token=N 提交
-- [ ] 确认旧 Token 的条件更新影响行数为 0
-- [ ] 确认 Worker A 不会成功 ACK 或覆盖 Inbox / JobRun
-- [ ] 检查两个 JobAttempt、Fence 冲突日志和最终业务结果
-- [ ] 检查 Provider 侧仍由稳定幂等键阻止重复外部副作用
+- [x] JobRun 持久化单调递增的 Fencing Token
+- [x] Worker A 获取 Job，并记录 Token=N
+- [x] 在业务 Commit 前暂停 Worker A，而不是终止进程
+- [x] 等待 Lease 过期并由 Scanner 释放旧 Owner
+- [x] Worker B 获取同一 Job，并得到 Token=N+1
+- [x] Worker B 完成业务处理并提交
+- [x] 恢复 Worker A，让它尝试使用 Token=N 提交
+- [x] 确认旧 Token 的条件更新影响行数为 0
+- [x] 确认 Worker A 不会成功 ACK 或覆盖 Inbox / JobRun
+- [x] 检查两个 JobAttempt、Fence 冲突日志和最终业务结果
+- [x] 检查 Provider 侧仍由稳定幂等键阻止重复外部副作用
 
 ### PASS 条件
 
@@ -876,6 +876,23 @@ Worker A 的 Lease 过期并由 Worker B 接管后，即使 Worker A 只是暂�
 Provider 与数据库业务副作用都只有一份
 旧 Owner 被拒绝的原因可审计
 ```
+
+### 执行结果
+
+```text
+PASS（E2）
+故障注入：真实 Docker pause/unpause Worker A
+Worker A：Lease/JobAttempt Token=1，ProviderAttempt=Pending
+Worker B：Lease/JobAttempt Token=2，Contribution/JobRun Succeeded
+Worker A 恢复：Token1 条件匹配 false，AffectedRows=0，不 ACK
+最终：Inbox=1、ProviderReference=1、Provider Effect=1、DeadLetter=0
+ProviderAttempt：2，稳定 Idempotency Key distinct=1
+Phase 2 Exp1–Exp11：13/13 通过
+最终全量：159/159 通过
+```
+
+聚合实验报告：
+[`learning/phase-2/exp11-stale-owner-fencing.md`](phase-2/exp11-stale-owner-fencing.md)
 
 ### 边界
 
