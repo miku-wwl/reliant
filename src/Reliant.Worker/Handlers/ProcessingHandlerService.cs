@@ -345,6 +345,10 @@ public class ProcessingHandlerService(
 
                         var submitResult = await sender.Send(new SubmitToProviderCommand(
                             contributionId, organizationId, amount, currency, contribution.ExternalReference), stoppingToken);
+                        var jobAttemptOutcome =
+                            JobAttemptStatus.Succeeded;
+                        var jobOutcome = JobStatus.Succeeded;
+                        string? jobError = null;
 
                         // TRUE reload: a callback may have arrived and committed a state
                         // change while the provider call was in flight. The pre-call
@@ -440,21 +444,76 @@ public class ProcessingHandlerService(
                         }
                         else
                         {
-                            if (RetryPolicy.ShouldRetry(contribution.RetryCount + 1, submitResult.ErrorCategory))
+                            var currentAttempt =
+                                contribution.RetryCount + 1;
+                            if (submitResult.ErrorCategory is not null &&
+                                ErrorClassifier.IsRetryable(
+                                    submitResult.ErrorCategory.Value))
                             {
                                 var fromState = contribution.State;
-                                contribution.RetryCount++;
+                                contribution.RetryCount =
+                                    currentAttempt;
                                 contribution.LastErrorCategory = submitResult.ErrorCategory;
                                 contribution.LastErrorMessage = submitResult.ErrorMessage;
-                                contribution.NextRetryAt = DateTime.UtcNow.Add(RetryPolicy.GetDelay(contribution.RetryCount));
-                                contribution.TransitionTo(ContributionState.RetryPending, "Retryable failure");
+                                string transitionReason;
+
+                                if (RetryPolicy.ShouldRetry(
+                                    currentAttempt,
+                                    submitResult.ErrorCategory))
+                                {
+                                    var retryDelay =
+                                        RetryPolicy.GetDelay(
+                                            currentAttempt);
+                                    var delayMilliseconds = (long)Math.Round(
+                                        retryDelay.TotalMilliseconds,
+                                        MidpointRounding.AwayFromZero);
+                                    contribution.NextRetryAt =
+                                        DateTime.UtcNow.Add(
+                                            retryDelay);
+                                    transitionReason =
+                                        "Retryable failure";
+                                    logger.LogInformation(
+                                        "Retry backoff scheduled for contribution {ContributionId}: attempt {Attempt}/{MaxAttempts}, delay {DelayMs} ms, next {NextRetryAt:O}",
+                                        contributionId,
+                                        currentAttempt,
+                                        RetryPolicy.MaxAttempts,
+                                        delayMilliseconds,
+                                        contribution.NextRetryAt);
+                                }
+                                else
+                                {
+                                    // The final provider attempt is durable,
+                                    // then the existing scheduler immediately
+                                    // owns Failed + DeadLetter + alert as one
+                                    // transaction. No sixth provider call is
+                                    // dispatched.
+                                    contribution.NextRetryAt =
+                                        DateTime.UtcNow;
+                                    transitionReason =
+                                        "Retry budget exhausted; awaiting dead-letter finalization";
+                                    jobAttemptOutcome =
+                                        JobAttemptStatus.Failed;
+                                    jobOutcome =
+                                        JobStatus.DeadLettered;
+                                    jobError =
+                                        submitResult.ErrorMessage;
+                                    logger.LogError(
+                                        "Contribution {ContributionId} retry exhausted after {AttemptCount} attempts; dead-letter finalization queued",
+                                        contributionId,
+                                        currentAttempt);
+                                }
+
+                                contribution.TransitionTo(
+                                    ContributionState.RetryPending,
+                                    transitionReason);
                                 await stateTransitionRepo.AddAsync(new StateTransition
                                 {
                                     Id = Guid.NewGuid(),
                                     ContributionId = contributionId,
                                     FromState = fromState,
                                     ToState = ContributionState.RetryPending,
-                                    Reason = $"Retryable: {submitResult.ErrorMessage}",
+                                    Reason =
+                                        $"{transitionReason}: {submitResult.ErrorMessage}",
                                     ChangedBy = workerId
                                 }, stoppingToken);
                             }
@@ -496,9 +555,9 @@ public class ProcessingHandlerService(
                             jobAttemptRepo,
                             jobRunId,
                             jobAttempt.Id,
-                            JobAttemptStatus.Succeeded,
-                            JobStatus.Succeeded,
-                            null,
+                            jobAttemptOutcome,
+                            jobOutcome,
+                            jobError,
                             stoppingToken);
                         await innerUnitOfWork.SaveChangesAsync(stoppingToken);
                         faultInjector.Inject(WorkerFaultPoint.AfterInboxCommitted, contributionId.ToString());

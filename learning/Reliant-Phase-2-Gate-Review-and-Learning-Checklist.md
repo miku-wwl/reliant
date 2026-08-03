@@ -350,17 +350,17 @@ Broker 暂时不可用
 
 ### 必须在代码中找到
 
-- [ ] `RetryPolicy`
-- [ ] `ErrorCategory`
-- [ ] 最大重试次数
-- [ ] Backoff 计算
-- [ ] Jitter 计算
-- [ ] Retry Attempt 是否持久化
+- [x] `RetryPolicy`（Exp7）
+- [x] `ErrorCategory`（Exp7：RateLimited）
+- [x] 最大重试次数（Exp7：5）
+- [x] Backoff 计算（Exp7：1s / 2s / 4s / 8s）
+- [x] Jitter 计算（Exp7：每次 0–1s）
+- [x] Retry Attempt 是否持久化（Exp7：ProcessingAttempt 1–5）
 - [ ] Worker 重启后是否保留 Attempt
-- [ ] Permanent Failure 是否跳过无意义重试
-- [ ] Retry Exhaustion 后进入什么状态
-- [ ] 是否存在无限重试路径
-- [ ] 是否存在大量 Worker 同步重试的风险
+- [x] Permanent Failure 是否跳过无意义重试（RetryPolicyTests）
+- [x] Retry Exhaustion 后进入什么状态（Failed + DeadLettered）
+- [x] 是否存在无限重试路径（Exp7 终态后稳定性检查）
+- [x] 是否存在大量 Worker 同步重试的风险（Jitter 已启用）
 
 ### 示例
 
@@ -666,12 +666,12 @@ Transient Failure 达到最大次数后停止自动重试。
 
 ### 步骤
 
-- [ ] 让 Handler 持续返回可重试错误
-- [ ] 记录每次 Attempt
-- [ ] 记录 Backoff / Jitter
-- [ ] 等待达到最大次数
-- [ ] 检查最终状态或 DLQ
-- [ ] 确认没有继续重试
+- [x] 让 Handler 持续返回可重试错误
+- [x] 记录每次 Attempt
+- [x] 记录 Backoff / Jitter
+- [x] 等待达到最大次数
+- [x] 检查最终状态或 DLQ
+- [x] 确认没有继续重试
 
 ### PASS 条件
 
@@ -680,6 +680,23 @@ Retry 有上限
 Attempt 可审计
 最终状态明确
 ```
+
+### 执行结果
+
+```text
+PASS（E2）
+Provider：持续返回 429 RateLimited
+ProcessingAttempt：5（AttemptNumber 1–5）
+Backoff：1699ms / 2334ms / 4145ms / 8325ms
+最终：Contribution=Failed、RetryCount=5、NextRetryAt=null
+DeadLetterRecord：1
+JobRun：前 4 个 Succeeded，最后 1 个 DeadLettered
+稳定性：额外等待 3 秒，没有新增 Attempt 或 Retry Outbox
+最终全量：155/155 通过
+```
+
+聚合实验报告：
+[`learning/phase-2/exp7-retry-exhaustion.md`](phase-2/exp7-retry-exhaustion.md)
 
 ---
 
@@ -1120,7 +1137,7 @@ Lease 过期
 - [ ] Queue Adapter 可以在 LocalStack SQS 工作
 - [ ] Inbox / Idempotency 生效
 - [x] Job / Attempt / Lease / Heartbeat 数据可查询
-- [ ] Retry 与 DLQ 工作
+- [x] Retry 与 DLQ 工作
 - [ ] CLI 可以查询 Job 和 Dead-letter
 
 ## Reliability Gate
@@ -1131,8 +1148,8 @@ Lease 过期
 - [ ] Worker Crash 后任务可恢复
 - [x] Lease Expiry 后其他 Worker 可接管
 - [x] Poison Message 不阻塞正常队列
-- [ ] Retry 有分类、上限、Backoff 和 Jitter
-- [ ] Retry Exhaustion 有明确终态
+- [x] Retry 有分类、上限、Backoff 和 Jitter
+- [x] Retry Exhaustion 有明确终态
 - [ ] Dead-letter 可审计和受控 Replay
 - [ ] Broker 暂时不可用时消息不会静默丢失
 - [ ] Graceful Shutdown 有独立 Evidence
@@ -1315,7 +1332,7 @@ Name
 - [ ] Worker Crash 后任务恢复
 - [ ] Lease 接管后旧 Owner 无法提交
 - [ ] 健康长任务会同步延长 SQS Visibility
-- [ ] Retry 有分类和上限
+- [x] Retry 有分类和上限
 - [x] Poison Message 进入 DLQ
 - [ ] Dead-letter 可审计和 Replay
 

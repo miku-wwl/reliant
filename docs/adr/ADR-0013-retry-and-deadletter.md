@@ -30,15 +30,15 @@ outline 第8.2节定义了 Retry 分类和策略。ADR-0002 不变量 #7 要求"
 ```
 重试间隔 = 基础延迟 × 2^次数 + 随机抖动
 
-示例（基础延迟 1 秒）：
-第 1 次重试：1 秒 + 随机 0-1 秒
-第 2 次重试：2 秒 + 随机 0-1 秒
-第 3 次重试：4 秒 + 随机 0-1 秒
-第 4 次重试：8 秒 + 随机 0-1 秒
-第 5 次重试：16 秒 + 随机 0-1 秒（最多 5 次）
+示例（基础延迟 1 秒，最多 5 次 Provider Attempt）：
+Attempt 1 失败：等待 1 秒 + 随机 0-1 秒
+Attempt 2 失败：等待 2 秒 + 随机 0-1 秒
+Attempt 3 失败：等待 4 秒 + 随机 0-1 秒
+Attempt 4 失败：等待 8 秒 + 随机 0-1 秒
+Attempt 5 失败：Retry Exhausted，不再创建下一次 Retry
 ```
 
-- 最大重试次数：5 次
+- 最大 Provider Attempt：5 次（初始 Attempt + 最多 4 次 Retry）
 - 最大延迟上限：30 秒（防止指数增长太夸张）
 - 随机抖动（Jitter）：0-1 秒，防止多个 Worker 同时重试造成雪崩
 
@@ -101,5 +101,7 @@ DeadLetterRecord
 - Dead-letter 需要人工介入，不能自动 replay
 - SQS DLQ 在 Phase 0 已验证可用（maxReceiveCount 行为正确）
 - Phase 2 Exp6 已用 LocalStack E2 验证 Processing Queue 的原生 RedrivePolicy、
-  Poison Contract Gate、Payload 保留和数据库审计；Retry Budget、Transient
-  Retry Exhaustion、CLI 查询及受控 Replay 仍未完成，所以本 ADR 保持 Proposed。
+  Poison Contract Gate、Payload 保留和数据库审计。
+- Phase 2 Exp7 已用真实 WorkerHost 验证 5 次 transient Provider Attempt、
+  Backoff/Jitter、Failed + DeadLettered 终态和停止继续重试。
+- 全局 Retry Budget、CLI 查询及受控 Replay 仍未完成，所以本 ADR 保持 Proposed。
