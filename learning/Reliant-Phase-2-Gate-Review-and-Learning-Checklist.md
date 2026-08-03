@@ -457,7 +457,7 @@ Network
 
 > 2026-08-03 已执行：**PASS（E2）**。
 >
-> Evidence：`docs/evidence/phase-2/exp1-publisher-crash.md`
+> 学习实验报告：`learning/phase-2/exp1-publisher-crash.md`
 >
 > 使用真实 PostgreSQL 17 + LocalStack 3，在真实 SQS Send 前暂停并停止
 > Publisher Host；重启后消息恢复发布，最终业务结果只有一份。
@@ -489,13 +489,21 @@ OutboxMessage 存在
 
 同一个 Outbox 消息被重复发布，不会产生重复业务结果。
 
+> 2026-08-03 已执行：**PASS（E2）**。
+>
+> 学习实验报告：`learning/phase-2/exp2-duplicate-publish.md`
+>
+> 使用真实 PostgreSQL 17 + LocalStack 3，把同一个 OutboxMessage.Id 依次发布
+> 两次；Queue 和 Consumer 都观察到两次，但 Inbox、Provider 业务操作和最终
+> 业务结果都只有一次。
+
 ### 步骤
 
-- [ ] 强制同一 Outbox Message 发布两次
-- [ ] 检查 Queue 是否收到重复消息
-- [ ] 检查 Consumer 是否触发两次
-- [ ] 检查最终业务数据
-- [ ] 检查 Inbox / Dedup 记录
+- [x] 强制同一 Outbox Message 发布两次
+- [x] 检查 Queue 是否收到重复消息
+- [x] 检查 Consumer 是否触发两次
+- [x] 检查最终业务数据
+- [x] 检查 Inbox / Dedup 记录
 
 ### PASS 条件
 

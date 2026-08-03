@@ -91,7 +91,16 @@ public class SqsQueueAdapter : IQueueAdapter
 
 internal sealed class SqsMessage(Message msg) : IQueueMessage
 {
-    public string MessageId => msg.MessageId;
+    // The Outbox Id is the stable logical MessageId used by Inbox deduplication.
+    // SQS assigns a new physical MessageId to every SendMessage call, so using
+    // msg.MessageId here would make a duplicate publish look like a new event.
+    // Fall back to the physical id for externally-produced messages that do not
+    // carry Reliant's logical MessageId attribute.
+    public string MessageId =>
+        msg.MessageAttributes.TryGetValue("MessageId", out var attr) &&
+        !string.IsNullOrWhiteSpace(attr.StringValue)
+            ? attr.StringValue
+            : msg.MessageId;
     public string MessageType => msg.MessageAttributes.TryGetValue("MessageType", out var attr) ? attr.StringValue : "Unknown";
     public string Payload => msg.Body;
     public int ApproximateReceiveCount =>
