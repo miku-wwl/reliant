@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -109,7 +110,8 @@ public sealed class WorkerHostFixture : IAsyncLifetime
         bool includeReconciliation = true,
         IWorkerFaultInjector? faultInjector = null,
         int visibilityTimeoutSeconds = 35,
-        IQueueAdapter? queueAdapterOverride = null)
+        IQueueAdapter? queueAdapterOverride = null,
+        IInterceptor? dbInterceptor = null)
     {
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(
             new HostApplicationBuilderSettings { Args = Array.Empty<string>() });
@@ -130,6 +132,9 @@ public sealed class WorkerHostFixture : IAsyncLifetime
 
         builder.Services.AddReliantApplication();
         builder.Services.AddReliantInfrastructure(builder.Configuration);
+        if (dbInterceptor is not null)
+            builder.Services.ConfigureDbContext<ReliantDbContext>(
+                options => options.AddInterceptors(dbInterceptor));
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddScoped<IRetryScheduler, RetrySchedulerService>();
         if (faultInjector is not null)

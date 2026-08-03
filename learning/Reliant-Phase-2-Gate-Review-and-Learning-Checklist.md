@@ -520,13 +520,21 @@ OutboxMessage 存在
 
 同一 MessageId 被重复投递时，Inbox 或业务唯一约束会阻止重复结果。
 
+> 2026-08-03 已执行：**PASS（E2）**。
+>
+> 学习实验报告：`learning/phase-2/exp3-duplicate-delivery.md`
+>
+> 使用真实 PostgreSQL 17 + LocalStack 3，让相同 MessageId 的两条物理消息被
+> 两个并发 Worker 路径同时处理。首次运行发现 Version 未递增造成状态双写；
+> 修复后乐观并发裁决输家，消息重投并由 Inbox 去重，最终业务结果只有一份。
+
 ### 步骤
 
-- [ ] 同一 MessageId 投递两次
-- [ ] 尝试并发投递
-- [ ] 检查两个 Worker 是否都进入处理路径
-- [ ] 检查数据库最终状态
-- [ ] 检查第二次处理的结果和日志
+- [x] 同一 MessageId 投递两次
+- [x] 尝试并发投递
+- [x] 检查两个 Worker 是否都进入处理路径
+- [x] 检查数据库最终状态
+- [x] 检查第二次处理的结果和日志
 
 ### PASS 条件
 

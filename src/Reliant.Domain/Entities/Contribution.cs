@@ -33,5 +33,6 @@ public class Contribution
 
         State = target;
         UpdatedAt = DateTime.UtcNow;
+        Version++;
     }
 }

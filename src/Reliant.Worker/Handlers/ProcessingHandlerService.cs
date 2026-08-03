@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -334,6 +335,17 @@ public class ProcessingHandlerService(
                         await queueAdapter.DeleteAsync(queueUrl, message.ReceiptHandle, stoppingToken);
 
                         logger.LogInformation("Message {MessageId} processed, attempt status: {Status}", message.MessageId, submitResult.Status);
+                    }
+                    catch (DbUpdateConcurrencyException ex)
+                    {
+                        // Another concurrent delivery committed the same
+                        // Contribution state first. Leave this physical message
+                        // unacknowledged; after visibility expiry it will observe
+                        // the winner's Inbox row and follow the normal dedup path.
+                        logger.LogWarning(
+                            ex,
+                            "Message {MessageId} lost optimistic concurrency; leaving unacknowledged for Inbox recovery",
+                            message.MessageId);
                     }
                     catch (InvalidStateTransitionException ex)
                     {
