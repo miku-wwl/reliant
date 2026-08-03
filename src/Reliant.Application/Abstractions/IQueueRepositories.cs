@@ -8,6 +8,7 @@ public interface IOutboxRepository
     Task<List<OutboxMessage>> GetPendingAsync(int batchSize, CancellationToken cancellationToken = default);
     Task MarkAsSentAsync(Guid id, CancellationToken cancellationToken = default);
     Task MarkAsFailedAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<int> RecordSendFailureAsync(Guid id, CancellationToken cancellationToken = default);
     Task AddAsync(OutboxMessage message, CancellationToken cancellationToken = default);
 }
 

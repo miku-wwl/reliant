@@ -1,6 +1,6 @@
 # Reliant - Current State
 
-> 最后更新：Phase 2 Experiment 7（Retry Exhaustion）—
+> 最后更新：Phase 2 Experiment 8（Broker Temporarily Unavailable）—
 > Local Verified；Phase 3.1 CI baseline 仍为 Completed
 
 ## Phase 3.1 状态
@@ -16,10 +16,10 @@ Evidence pack: docs/evidence/phase-3.1/
 CI evidence: docs/evidence/phase-3.1/ci-run.md
 ```
 
-当前工作树在 Phase 3.1 基线上补充了 Phase 2 Exp1–Exp7，最新本地全量结果：
+当前工作树在 Phase 3.1 基线上补充了 Phase 2 Exp1–Exp8，最新本地全量结果：
 
 ```text
-155 passed, 0 failed, 0 skipped
+156 passed, 0 failed, 0 skipped
 ```
 
 新增代码 push 后需要重新取得 GitHub Actions CI evidence；原 146-test CI
@@ -49,6 +49,7 @@ CI evidence: docs/evidence/phase-3.1/ci-run.md
 | JobRun / JobAttempt / Lease | Implemented | Verified | learning/phase-2/exp5-lease-expiry.md |
 | Poison Message / Native SQS DLQ | Implemented | Verified | learning/phase-2/exp6-poison-message.md |
 | Retry Exhaustion / Backoff / Jitter | Implemented | Verified | learning/phase-2/exp7-retry-exhaustion.md |
+| Broker Outage / Outbox Recovery | Implemented | Verified | learning/phase-2/exp8-broker-temporarily-unavailable.md |
 | Optimistic Concurrency | Implemented | Verified | Integration Test: OptimisticConcurrency_ShouldPreventLostUpdate |
 | OpenTelemetry | Not Started | Not Started | - |
 | Metrics / Logs / Dashboard | Not Started | Not Started | - |
@@ -73,9 +74,9 @@ CI evidence: docs/evidence/phase-3.1/ci-run.md
 
 - Unit Tests: 65
 - Architecture Tests: 5
-- PostgreSQL Integration Tests: 61
-- LocalStack Integration Tests: 22
+- PostgreSQL Integration Tests: 62
+- LocalStack Integration Tests: 23
 - HTTP API Integration Tests: 9
-- WorkerHost End-to-End Tests: 17
-- Integration Tests Total: 85
-- Total Tests: 155
+- WorkerHost End-to-End Tests: 18
+- Integration Tests Total: 86
+- Total Tests: 156

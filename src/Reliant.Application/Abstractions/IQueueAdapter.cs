@@ -1,4 +1,16 @@
+using Reliant.Domain.Enums;
+
 namespace Reliant.Application.Abstractions;
+
+public sealed class QueuePublishException(
+    ErrorCategory errorCategory,
+    bool isTransient,
+    string message,
+    Exception innerException) : Exception(message, innerException)
+{
+    public ErrorCategory ErrorCategory { get; } = errorCategory;
+    public bool IsTransient { get; } = isTransient;
+}
 
 public interface IQueueMessage
 {

@@ -12,6 +12,8 @@ public class SqsQueueAdapter : IQueueAdapter
 {
     private readonly AmazonSQSClient _client;
     private readonly int _maxReceiveCount;
+    private readonly TimeSpan _requestTimeout;
+    private readonly TimeSpan _publishTimeout;
     private readonly ConcurrentDictionary<string, string> _queueUrls =
         new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _queueProvisioningGate = new(1, 1);
@@ -20,11 +22,36 @@ public class SqsQueueAdapter : IQueueAdapter
     {
         var endpoint = configuration["Queue:Endpoint"] ?? "http://localhost:4566";
         var region = configuration["Queue:Region"] ?? "us-west-1";
+        var requestTimeoutSeconds =
+            int.TryParse(
+                configuration["Queue:RequestTimeoutSeconds"],
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out var parsedRequestTimeoutSeconds)
+                ? parsedRequestTimeoutSeconds
+                : 5;
+        var maxErrorRetry =
+            int.TryParse(
+                configuration["Queue:MaxErrorRetry"],
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out var parsedMaxErrorRetry)
+                ? parsedMaxErrorRetry
+                : 1;
+        var publishTimeoutSeconds =
+            int.TryParse(
+                configuration["Queue:PublishTimeoutSeconds"],
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out var parsedPublishTimeoutSeconds)
+                ? parsedPublishTimeoutSeconds
+                : requestTimeoutSeconds;
 
         var config = new AmazonSQSConfig
         {
             ServiceURL = endpoint,
-            AuthenticationRegion = region
+            AuthenticationRegion = region,
+            MaxErrorRetry = Math.Max(0, maxErrorRetry)
         };
 
         if (endpoint.Contains("localhost") || endpoint.Contains("4566"))
@@ -33,6 +60,10 @@ public class SqsQueueAdapter : IQueueAdapter
         }
 
         _client = new AmazonSQSClient("test", "test", config);
+        _requestTimeout = TimeSpan.FromSeconds(
+            Math.Max(1, requestTimeoutSeconds));
+        _publishTimeout = TimeSpan.FromSeconds(
+            Math.Max(1, publishTimeoutSeconds));
         var configuredMaxReceiveCount =
             int.TryParse(
                 configuration["Queue:MaxReceiveCount"],
@@ -55,7 +86,13 @@ public class SqsQueueAdapter : IQueueAdapter
             return cachedQueueUrl;
         }
 
-        await _queueProvisioningGate.WaitAsync(cancellationToken);
+        using var requestCts =
+            CreateRequestCancellationTokenSource(
+                cancellationToken,
+                _requestTimeout);
+        var requestToken = requestCts.Token;
+
+        await _queueProvisioningGate.WaitAsync(requestToken);
         try
         {
             if (_queueUrls.TryGetValue(queueName, out cachedQueueUrl))
@@ -65,12 +102,12 @@ public class SqsQueueAdapter : IQueueAdapter
 
             var deadLetterQueueUrl = await GetOrCreateRawQueueAsync(
                 $"{queueName}-dlq",
-                cancellationToken);
+                requestToken);
             var deadLetterAttributes =
                 await _client.GetQueueAttributesAsync(
                     deadLetterQueueUrl,
                     [QueueAttributeName.QueueArn],
-                    cancellationToken);
+                    requestToken);
             if (string.IsNullOrWhiteSpace(deadLetterAttributes.QueueARN))
             {
                 throw new InvalidOperationException(
@@ -79,7 +116,7 @@ public class SqsQueueAdapter : IQueueAdapter
 
             var queueUrl = await GetOrCreateRawQueueAsync(
                 queueName,
-                cancellationToken);
+                requestToken);
             var redrivePolicy = JsonSerializer.Serialize(
                 new Dictionary<string, string>
                 {
@@ -95,7 +132,7 @@ public class SqsQueueAdapter : IQueueAdapter
                 {
                     ["RedrivePolicy"] = redrivePolicy
                 },
-                cancellationToken);
+                requestToken);
 
             _queueUrls[queueName] = queueUrl;
             return queueUrl;
@@ -131,6 +168,16 @@ public class SqsQueueAdapter : IQueueAdapter
 
     public async Task<IQueueMessage?> ReceiveAsync(string queueUrl, int visibilityTimeoutSeconds, CancellationToken cancellationToken = default)
     {
+        // ReceiveMessage uses a five-second long poll. Its timeout must remain
+        // longer than that poll; the shorter publisher timeout must not cancel
+        // healthy empty receives.
+        using var requestCts =
+            CreateRequestCancellationTokenSource(
+                cancellationToken,
+                TimeSpan.FromSeconds(
+                    Math.Max(
+                        7,
+                        _requestTimeout.TotalSeconds)));
         var response = await _client.ReceiveMessageAsync(new ReceiveMessageRequest
         {
             QueueUrl = queueUrl,
@@ -142,7 +189,7 @@ public class SqsQueueAdapter : IQueueAdapter
             [
                 MessageSystemAttributeName.ApproximateReceiveCount
             ]
-        }, cancellationToken);
+        }, requestCts.Token);
 
         if (response.Messages.Count == 0) return null;
 
@@ -152,11 +199,15 @@ public class SqsQueueAdapter : IQueueAdapter
 
     public async Task DeleteAsync(string queueUrl, string receiptHandle, CancellationToken cancellationToken = default)
     {
+        using var requestCts =
+            CreateRequestCancellationTokenSource(
+                cancellationToken,
+                _requestTimeout);
         await _client.DeleteMessageAsync(new DeleteMessageRequest
         {
             QueueUrl = queueUrl,
             ReceiptHandle = receiptHandle
-        }, cancellationToken);
+        }, requestCts.Token);
     }
 
     public async Task SendAsync(string queueUrl, string messageBody, string messageId, string messageType, CancellationToken cancellationToken = default)
@@ -167,12 +218,28 @@ public class SqsQueueAdapter : IQueueAdapter
             ["MessageType"] = new MessageAttributeValue { StringValue = messageType, DataType = "String" }
         };
 
+        using var requestCts =
+            CreateRequestCancellationTokenSource(
+                cancellationToken,
+                _publishTimeout);
         await _client.SendMessageAsync(new SendMessageRequest
         {
             QueueUrl = queueUrl,
             MessageBody = messageBody,
             MessageAttributes = attributes
-        }, cancellationToken);
+        }, requestCts.Token);
+    }
+
+    private static CancellationTokenSource
+        CreateRequestCancellationTokenSource(
+            CancellationToken callerToken,
+            TimeSpan timeout)
+    {
+        var requestCts =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                callerToken);
+        requestCts.CancelAfter(timeout);
+        return requestCts;
     }
 }
 

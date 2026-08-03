@@ -36,6 +36,28 @@ public class OutboxRepository(ReliantDbContext db) : IOutboxRepository
                 .SetProperty(p => p.Status, OutboxStatus.Failed), cancellationToken);
     }
 
+    public async Task<int> RecordSendFailureAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        await db.OutboxMessages
+            .IgnoreQueryFilters()
+            .Where(x =>
+                x.Id == id &&
+                x.Status == OutboxStatus.Pending)
+            .ExecuteUpdateAsync(
+                x => x.SetProperty(
+                    p => p.SendCount,
+                    p => p.SendCount + 1),
+                cancellationToken);
+
+        return await db.OutboxMessages
+            .IgnoreQueryFilters()
+            .Where(x => x.Id == id)
+            .Select(x => x.SendCount)
+            .SingleAsync(cancellationToken);
+    }
+
     public async Task AddAsync(OutboxMessage message, CancellationToken cancellationToken = default)
     {
         await db.OutboxMessages.AddAsync(message, cancellationToken);

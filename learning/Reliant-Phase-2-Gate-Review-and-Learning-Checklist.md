@@ -708,13 +708,13 @@ Broker 暂时不可用时，业务事务和 Outbox 状态不会丢失；Broker �
 
 ### 步骤
 
-- [ ] 停止 LocalStack / Queue
-- [ ] 创建业务请求
-- [ ] 检查 Business Data 与 Outbox
-- [ ] 检查 Publisher 错误分类
-- [ ] 恢复 Broker
-- [ ] 确认 Outbox 继续发布
-- [ ] 检查是否出现重试风暴
+- [x] 停止 LocalStack / Queue
+- [x] 创建业务请求
+- [x] 检查 Business Data 与 Outbox
+- [x] 检查 Publisher 错误分类
+- [x] 恢复 Broker
+- [x] 确认 Outbox 继续发布
+- [x] 检查是否出现重试风暴
 
 ### PASS 条件
 
@@ -725,6 +725,28 @@ Broker 恢复后继续发布
 无静默丢失
 无无限重试
 ```
+
+### 执行结果
+
+```text
+PASS（E2）
+故障注入：Docker pause LocalStack，WorkerHost 不重启
+故障期间：Contribution=Created、Outbox=Pending、SentAt=null、JobRun=Pending
+Publisher：3 次 transient Timeout，SendCount=3
+Backoff：500ms / 1000ms / 2000ms
+恢复：LocalStack unpause 后约 1901ms，Outbox=Sent、Contribution=Succeeded
+最终：Inbox=1、ProcessingAttempt=1、ProviderReference=1、Provider Effect=1
+稳定性：额外等待 3 秒，没有新增失败或继续重试
+Phase 2 Exp1–Exp8：10/10 通过
+最终全量：156/156 通过
+```
+
+这里的“无无限重试”指没有无等待紧循环、没有按 backlog 放大故障请求，且消息
+Sent 后停止。若 Broker 永久不恢复，transient Pending 会继续按 cap + jitter
+低频探测；对应告警和人工处置策略仍属于生产准备工作。
+
+聚合实验报告：
+[`learning/phase-2/exp8-broker-temporarily-unavailable.md`](phase-2/exp8-broker-temporarily-unavailable.md)
 
 ---
 

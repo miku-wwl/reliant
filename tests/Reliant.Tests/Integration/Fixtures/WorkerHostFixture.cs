@@ -52,6 +52,19 @@ public sealed class WorkerHostFixture : IAsyncLifetime
 
     public IHost Host => _host ?? throw new InvalidOperationException("Worker host not started");
 
+    public Task StopBrokerAsync(
+        CancellationToken cancellationToken = default)
+        // Pausing makes the broker unreachable while preserving the container's
+        // host-port binding. A stop/start cycle can receive a new random host
+        // port in Testcontainers, which is not representative of a production
+        // broker endpoint and would leave the already-built worker host pointing
+        // at a stale test-only URL.
+        => _localStack.PauseAsync(cancellationToken);
+
+    public Task StartBrokerAsync(
+        CancellationToken cancellationToken = default)
+        => _localStack.UnpauseAsync(cancellationToken);
+
     /// <summary>Recent worker log lines (for failure diagnostics).</summary>
     public IReadOnlyList<string> LogLines => _loggerProvider.Lines.ToArray();
 
@@ -115,7 +128,13 @@ public sealed class WorkerHostFixture : IAsyncLifetime
         ILeaseRepository? leaseRepositoryOverride = null,
         IJobRunRepository? jobRunRepositoryOverride = null,
         IJobAttemptRepository? jobAttemptRepositoryOverride = null,
-        int maxReceiveCount = 5)
+        int maxReceiveCount = 5,
+        int outboxRetryBaseMs = 1000,
+        int outboxRetryCapMs = 30000,
+        int outboxRetryJitterMs = 250,
+        int queueRequestTimeoutSeconds = 5,
+        int queuePublishTimeoutSeconds = 5,
+        int queueMaxErrorRetry = 1)
     {
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(
             new HostApplicationBuilderSettings { Args = Array.Empty<string>() });
@@ -127,9 +146,21 @@ public sealed class WorkerHostFixture : IAsyncLifetime
             ["Queue:Region"] = "us-west-1",
             ["Queue:QueueName"] = QueueName,
             ["Queue:MaxReceiveCount"] = maxReceiveCount.ToString(),
+            ["Queue:RequestTimeoutSeconds"] =
+                queueRequestTimeoutSeconds.ToString(),
+            ["Queue:PublishTimeoutSeconds"] =
+                queuePublishTimeoutSeconds.ToString(),
+            ["Queue:MaxErrorRetry"] =
+                queueMaxErrorRetry.ToString(),
             ["Provider:Mode"] = providerMode,
             ["Provider:Secret"] = "sandbox-secret-key",
             ["Worker:Outbox:IntervalMs"] = "300",
+            ["Worker:Outbox:RetryBaseMs"] =
+                outboxRetryBaseMs.ToString(),
+            ["Worker:Outbox:RetryCapMs"] =
+                outboxRetryCapMs.ToString(),
+            ["Worker:Outbox:RetryJitterMs"] =
+                outboxRetryJitterMs.ToString(),
             ["Worker:Reconciliation:IntervalMs"] = "300",
             ["Worker:Maintenance:IntervalMs"] = "300",
             ["Worker:VisibilityTimeoutSeconds"] = visibilityTimeoutSeconds.ToString()
