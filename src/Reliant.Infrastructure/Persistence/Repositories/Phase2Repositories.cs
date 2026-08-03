@@ -61,7 +61,44 @@ public class JobRunRepository(ReliantDbContext db) : IJobRunRepository
 {
     public async Task<JobRun?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        return await db.JobRuns.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        return await db.JobRuns
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+    }
+
+    public async Task EnsurePendingAsync(
+        JobRun jobRun,
+        CancellationToken cancellationToken = default)
+    {
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO job_runs (
+                "Id",
+                "OrganizationId",
+                "JobDefinitionId",
+                "QueueUrl",
+                "MessageId",
+                "Payload",
+                "Status",
+                "AttemptCount",
+                "StartedAt",
+                "CompletedAt",
+                "CreatedAt",
+                "Version")
+            VALUES (
+                {jobRun.Id},
+                {jobRun.OrganizationId},
+                {jobRun.JobDefinitionId},
+                {jobRun.QueueUrl},
+                {jobRun.MessageId},
+                {jobRun.Payload},
+                {(int)jobRun.Status},
+                {jobRun.AttemptCount},
+                {jobRun.StartedAt},
+                {jobRun.CompletedAt},
+                {jobRun.CreatedAt},
+                {jobRun.Version})
+            ON CONFLICT ("Id") DO NOTHING
+            """, cancellationToken);
     }
 
     public async Task AddAsync(JobRun jobRun, CancellationToken cancellationToken = default)
@@ -85,6 +122,38 @@ public class JobRunRepository(ReliantDbContext db) : IJobRunRepository
     }
 }
 
+public class JobAttemptRepository(ReliantDbContext db) : IJobAttemptRepository
+{
+    public async Task<JobAttempt?> GetByIdAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        return await db.JobAttempts
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+    }
+
+    public async Task<JobAttempt?> GetRunningByJobRunAsync(
+        Guid jobRunId,
+        CancellationToken cancellationToken = default)
+    {
+        return await db.JobAttempts
+            .IgnoreQueryFilters()
+            .Where(x =>
+                x.JobRunId == jobRunId &&
+                x.Status == JobAttemptStatus.Running)
+            .OrderByDescending(x => x.AttemptNumber)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task AddAsync(
+        JobAttempt attempt,
+        CancellationToken cancellationToken = default)
+    {
+        await db.JobAttempts.AddAsync(attempt, cancellationToken);
+    }
+}
+
 public class LeaseRepository(ReliantDbContext db) : ILeaseRepository
 {
     public async Task<Lease?> GetActiveByJobRunAsync(Guid jobRunId, CancellationToken cancellationToken = default)
@@ -94,9 +163,33 @@ public class LeaseRepository(ReliantDbContext db) : ILeaseRepository
             .FirstOrDefaultAsync(x => x.JobRunId == jobRunId && x.IsActive, cancellationToken);
     }
 
-    public async Task AddAsync(Lease lease, CancellationToken cancellationToken = default)
+    public async Task<bool> TryAcquireAsync(
+        Lease lease,
+        CancellationToken cancellationToken = default)
     {
-        await db.Leases.AddAsync(lease, cancellationToken);
+        var affected = await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO leases (
+                "Id",
+                "JobRunId",
+                "WorkerId",
+                "AcquiredAt",
+                "ExpiresAt",
+                "LastHeartbeatAt",
+                "IsActive")
+            VALUES (
+                {lease.Id},
+                {lease.JobRunId},
+                {lease.WorkerId},
+                {lease.AcquiredAt},
+                {lease.ExpiresAt},
+                {lease.LastHeartbeatAt},
+                {lease.IsActive})
+            ON CONFLICT ("JobRunId")
+                WHERE "IsActive"
+                DO NOTHING
+            """, cancellationToken);
+
+        return affected == 1;
     }
 
     public async Task RenewAsync(Guid leaseId, DateTime newExpiresAt, CancellationToken cancellationToken = default)
@@ -117,11 +210,30 @@ public class LeaseRepository(ReliantDbContext db) : ILeaseRepository
             .ExecuteUpdateAsync(x => x.SetProperty(p => p.IsActive, false), cancellationToken);
     }
 
-    public async Task<List<Lease>> GetExpiredAsync(CancellationToken cancellationToken = default)
+    public async Task<bool> TryReleaseExpiredAsync(
+        Guid leaseId,
+        DateTime now,
+        CancellationToken cancellationToken = default)
+    {
+        var affected = await db.Leases
+            .IgnoreQueryFilters()
+            .Where(x =>
+                x.Id == leaseId &&
+                x.IsActive &&
+                x.ExpiresAt < now)
+            .ExecuteUpdateAsync(
+                x => x.SetProperty(p => p.IsActive, false),
+                cancellationToken);
+        return affected == 1;
+    }
+
+    public async Task<List<Lease>> GetExpiredAsync(
+        DateTime now,
+        CancellationToken cancellationToken = default)
     {
         return await db.Leases
             .IgnoreQueryFilters()
-            .Where(x => x.IsActive && x.ExpiresAt < DateTime.UtcNow)
+            .Where(x => x.IsActive && x.ExpiresAt < now)
             .ToListAsync(cancellationToken);
     }
 }

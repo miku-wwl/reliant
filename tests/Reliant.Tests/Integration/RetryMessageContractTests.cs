@@ -41,6 +41,7 @@ public class RetryMessageContractTests : IClassFixture<PostgreSqlFixture>
         services.AddScoped<IStateTransitionRepository, StateTransitionRepository>();
         services.AddScoped<IAuditEventRepository, AuditEventRepository>();
         services.AddScoped<IOutboxRepository, OutboxRepository>();
+        services.AddScoped<IJobRunRepository, JobRunRepository>();
         services.AddScoped<IInboxRepository, InboxRepository>();
         services.AddScoped<IProcessingAttemptRepository, ProcessingAttemptRepository>();
         services.AddScoped<IProviderReferenceRepository, ProviderReferenceRepository>();
@@ -110,6 +111,8 @@ public class RetryMessageContractTests : IClassFixture<PostgreSqlFixture>
         var db = scope.ServiceProvider.GetRequiredService<ReliantDbContext>();
         var outbox = await db.Set<OutboxMessage>().IgnoreQueryFilters()
             .SingleAsync(o => o.MessageType == "ContributionCreated");
+        var jobRun = await db.Set<JobRun>().IgnoreQueryFilters()
+            .SingleAsync(j => j.Id == outbox.Id);
 
         var message = JsonSerializer.Deserialize<ContributionProcessingMessage>(outbox.Payload,
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
@@ -120,6 +123,11 @@ public class RetryMessageContractTests : IClassFixture<PostgreSqlFixture>
         Assert.Equal(response.Body!.Id, message.ContributionId);
         Assert.Equal(orgId, message.OrganizationId);
         Assert.Equal("correlation-1", message.CorrelationId);
+        Assert.Equal(outbox.Id.ToString(), jobRun.MessageId);
+        Assert.Equal(JobStatus.Pending, jobRun.Status);
+        Assert.Equal(
+            KnownJobDefinitions.ContributionProcessingId,
+            jobRun.JobDefinitionId);
 
         // The contract carries only identity - never business facts.
         using var doc = JsonDocument.Parse(outbox.Payload);

@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Reliant.Application.Abstractions;
+using Reliant.Domain.Enums;
 using Reliant.Worker.Scheduling;
 
 namespace Reliant.Worker.Handlers;
@@ -26,13 +27,61 @@ public class ScheduledMaintenanceHandlerService(
             {
                 using var scope = serviceProvider.CreateScope();
                 var leaseRepo = scope.ServiceProvider.GetRequiredService<ILeaseRepository>();
+                var jobRunRepo = scope.ServiceProvider.GetRequiredService<IJobRunRepository>();
+                var jobAttemptRepo = scope.ServiceProvider.GetRequiredService<IJobAttemptRepository>();
+                var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
                 var retryScheduler = scope.ServiceProvider.GetRequiredService<IRetryScheduler>();
 
-                var expiredLeases = await leaseRepo.GetExpiredAsync(stoppingToken);
+                var scanStartedAt =
+                    timeProvider.GetUtcNow().UtcDateTime;
+                var expiredLeases = await leaseRepo.GetExpiredAsync(
+                    scanStartedAt,
+                    stoppingToken);
                 foreach (var lease in expiredLeases)
                 {
-                    await leaseRepo.ReleaseAsync(lease.Id, stoppingToken);
-                    logger.LogWarning("Released expired lease {LeaseId} for worker {WorkerId}", lease.Id, lease.WorkerId);
+                    await unitOfWork.BeginTransactionAsync(stoppingToken);
+                    try
+                    {
+                        var now = timeProvider.GetUtcNow().UtcDateTime;
+                        var released = await leaseRepo.TryReleaseExpiredAsync(
+                            lease.Id,
+                            now,
+                            stoppingToken);
+                        if (!released)
+                        {
+                            await unitOfWork.RollbackAsync(stoppingToken);
+                            continue;
+                        }
+
+                        var runningAttempt =
+                            await jobAttemptRepo.GetRunningByJobRunAsync(
+                                lease.JobRunId,
+                                stoppingToken);
+                        runningAttempt?.Complete(
+                            JobAttemptStatus.Abandoned,
+                            now,
+                            $"Lease {lease.Id} expired while owned by {lease.WorkerId}");
+
+                        var jobRun = await jobRunRepo.GetByIdAsync(
+                            lease.JobRunId,
+                            stoppingToken);
+                        jobRun?.MarkPending();
+
+                        await unitOfWork.SaveChangesAsync(stoppingToken);
+                        await unitOfWork.CommitAsync(stoppingToken);
+
+                        logger.LogWarning(
+                            "Released expired lease {LeaseId} for worker {WorkerId}; job {JobRunId} returned to Pending",
+                            lease.Id,
+                            lease.WorkerId,
+                            lease.JobRunId);
+                    }
+                    catch
+                    {
+                        await unitOfWork.RollbackAsync(
+                            CancellationToken.None);
+                        throw;
+                    }
                 }
 
                 await retryScheduler.DispatchDueRetriesAsync(stoppingToken);

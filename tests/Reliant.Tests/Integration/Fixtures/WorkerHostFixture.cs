@@ -111,7 +111,10 @@ public sealed class WorkerHostFixture : IAsyncLifetime
         IWorkerFaultInjector? faultInjector = null,
         int visibilityTimeoutSeconds = 35,
         IQueueAdapter? queueAdapterOverride = null,
-        IInterceptor? dbInterceptor = null)
+        IInterceptor? dbInterceptor = null,
+        ILeaseRepository? leaseRepositoryOverride = null,
+        IJobRunRepository? jobRunRepositoryOverride = null,
+        IJobAttemptRepository? jobAttemptRepositoryOverride = null)
     {
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(
             new HostApplicationBuilderSettings { Args = Array.Empty<string>() });
@@ -141,6 +144,15 @@ public sealed class WorkerHostFixture : IAsyncLifetime
             builder.Services.AddSingleton<IWorkerFaultInjector>(faultInjector);
         if (queueAdapterOverride is not null)
             builder.Services.AddSingleton<IQueueAdapter>(queueAdapterOverride);
+        if (leaseRepositoryOverride is not null)
+            builder.Services.AddSingleton<ILeaseRepository>(
+                leaseRepositoryOverride);
+        if (jobRunRepositoryOverride is not null)
+            builder.Services.AddSingleton<IJobRunRepository>(
+                jobRunRepositoryOverride);
+        if (jobAttemptRepositoryOverride is not null)
+            builder.Services.AddSingleton<IJobAttemptRepository>(
+                jobAttemptRepositoryOverride);
         builder.Logging.ClearProviders();
         builder.Logging.AddProvider(_loggerProvider);
         builder.Services.AddHostedService<OutboxPublisherService>();

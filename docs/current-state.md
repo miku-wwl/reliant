@@ -1,6 +1,7 @@
 # Reliant - Current State
 
-> 最后更新：Phase 3.1（Reliability Gate Closure）— Completed
+> 最后更新：Phase 2 Experiment 5（Job Execution Model Completion）—
+> Local Verified；Phase 3.1 CI baseline 仍为 Completed
 
 ## Phase 3.1 状态
 
@@ -14,6 +15,15 @@ end-to-end over PostgreSQL (Testcontainers) + LocalStack SQS + a real worker hos
 Evidence pack: docs/evidence/phase-3.1/
 CI evidence: docs/evidence/phase-3.1/ci-run.md
 ```
+
+当前工作树在 Phase 3.1 基线上补充了 Phase 2 Exp1–Exp5，最新本地全量结果：
+
+```text
+153 passed, 0 failed, 0 skipped
+```
+
+新增代码 push 后需要重新取得 GitHub Actions CI evidence；原 146-test CI
+记录保留为 Phase 3.1 历史基线。
 
 ## 当前能力状态
 
@@ -36,6 +46,7 @@ CI evidence: docs/evidence/phase-3.1/ci-run.md
 | Circuit Breaker | Implemented | Verified | Deferred 语义 + 单 Probe + TimeProvider + Integration |
 | Retry Scheduling | Implemented | Verified | 原子 Claim + TimeProvider + 并发 Scheduler |
 | Crash Recovery | Implemented | Verified | Fault Injection + CrashRecoveryTests |
+| JobRun / JobAttempt / Lease | Implemented | Verified | learning/phase-2/exp5-lease-expiry.md |
 | Optimistic Concurrency | Implemented | Verified | Integration Test: OptimisticConcurrency_ShouldPreventLostUpdate |
 | OpenTelemetry | Not Started | Not Started | - |
 | Metrics / Logs / Dashboard | Not Started | Not Started | - |
@@ -60,9 +71,9 @@ CI evidence: docs/evidence/phase-3.1/ci-run.md
 
 - Unit Tests: 65
 - Architecture Tests: 5
-- PostgreSQL Integration Tests: 52
-- LocalStack Integration Tests: 15
+- PostgreSQL Integration Tests: 59
+- LocalStack Integration Tests: 20
 - HTTP API Integration Tests: 9
-- WorkerHost End-to-End Tests: 10
-- Integration Tests Total: 76
-- Total Tests: 146
+- WorkerHost End-to-End Tests: 15
+- Integration Tests Total: 83
+- Total Tests: 153

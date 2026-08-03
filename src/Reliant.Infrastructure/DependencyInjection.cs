@@ -32,6 +32,7 @@ public static class DependencyInjection
         services.AddScoped<IOutboxRepository, OutboxRepository>();
         services.AddScoped<IInboxRepository, InboxRepository>();
         services.AddScoped<IJobRunRepository, JobRunRepository>();
+        services.AddScoped<IJobAttemptRepository, JobAttemptRepository>();
         services.AddScoped<ILeaseRepository, LeaseRepository>();
         services.AddScoped<IDeadLetterRepository, DeadLetterRepository>();
         services.AddScoped<ICheckpointRepository, CheckpointRepository>();

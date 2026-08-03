@@ -158,6 +158,105 @@ public class DuplicateDeliveryE2ETests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// Experiment 3 deliberately bypasses the newer Lease ownership gate so
+    /// both deliveries still reach the Version concurrency boundary. Lease
+    /// expiry and takeover are covered independently by Experiment 5.
+    /// </summary>
+    private sealed class PermissiveLeaseRepository : ILeaseRepository
+    {
+        public Task<Lease?> GetActiveByJobRunAsync(
+            Guid jobRunId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<Lease?>(null);
+
+        public Task<bool> TryAcquireAsync(
+            Lease lease,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+
+        public Task RenewAsync(
+            Guid leaseId,
+            DateTime newExpiresAt,
+            CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task ReleaseAsync(
+            Guid leaseId,
+            CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task<bool> TryReleaseExpiredAsync(
+            Guid leaseId,
+            DateTime now,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<List<Lease>> GetExpiredAsync(
+            DateTime now,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new List<Lease>());
+    }
+
+    private sealed class PermissiveJobRunRepository : IJobRunRepository
+    {
+        public Task<JobRun?> GetByIdAsync(
+            Guid id,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<JobRun?>(new JobRun
+            {
+                Id = id,
+                JobDefinitionId =
+                    KnownJobDefinitions.ContributionProcessingId,
+                QueueUrl =
+                    KnownJobDefinitions.ContributionProcessingQueue,
+                MessageId = id.ToString(),
+                Payload = "{}",
+                Status = JobStatus.Pending
+            });
+
+        public Task EnsurePendingAsync(
+            JobRun jobRun,
+            CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task AddAsync(
+            JobRun jobRun,
+            CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task UpdateAsync(
+            JobRun jobRun,
+            CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task<List<JobRun>> GetByStatusAsync(
+            Guid organizationId,
+            JobStatus status,
+            int limit,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new List<JobRun>());
+    }
+
+    private sealed class PermissiveJobAttemptRepository
+        : IJobAttemptRepository
+    {
+        public Task<JobAttempt?> GetByIdAsync(
+            Guid id,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<JobAttempt?>(null);
+
+        public Task<JobAttempt?> GetRunningByJobRunAsync(
+            Guid jobRunId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<JobAttempt?>(null);
+
+        public Task AddAsync(
+            JobAttempt attempt,
+            CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+    }
+
     private static ReliantDbContext CreateDbContext(string connectionString)
     {
         var options = new DbContextOptionsBuilder<ReliantDbContext>()
@@ -208,7 +307,12 @@ public class DuplicateDeliveryE2ETests(ITestOutputHelper output)
             includeReconciliation: false,
             visibilityTimeoutSeconds: 3,
             queueAdapterOverride: queueProbe,
-            dbInterceptor: initialStateBarrier);
+            dbInterceptor: initialStateBarrier,
+            leaseRepositoryOverride: new PermissiveLeaseRepository(),
+            jobRunRepositoryOverride:
+                new PermissiveJobRunRepository(),
+            jobAttemptRepositoryOverride:
+                new PermissiveJobAttemptRepository());
 
         var organizationId = Guid.NewGuid();
         var campaignId = Guid.NewGuid();

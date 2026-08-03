@@ -11,6 +11,8 @@ using Reliant.Domain.Entities;
 using Reliant.Domain.Enums;
 using Reliant.Infrastructure.Persistence;
 using MediatR;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace Reliant.Worker.Handlers;
@@ -23,8 +25,12 @@ public class ProcessingHandlerService(
     private readonly string QueueName = configuration["Queue:QueueName"] ?? "reliant-processing";
     private const int Concurrency = 10;
     private readonly int VisibilityTimeoutSeconds = configuration.GetValue<int?>("Worker:VisibilityTimeoutSeconds") ?? 35;
-    private const int LeaseSeconds = 30;
-    private const int HeartbeatIntervalMs = 10000;
+    private readonly int LeaseSeconds = Math.Max(
+        1,
+        configuration.GetValue<int?>("Worker:LeaseSeconds") ?? 30);
+    private readonly int HeartbeatIntervalMs = Math.Max(
+        100,
+        configuration.GetValue<int?>("Worker:HeartbeatIntervalMs") ?? 10000);
     private static readonly RetryPolicy RetryPolicy = new();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -50,11 +56,24 @@ public class ProcessingHandlerService(
                     if (message is null) return;
 
                     logger.LogInformation("Processing message {MessageId}", message.MessageId);
+                    var jobRunId = ResolveJobRunId(message.MessageId);
+                    var msg = JsonSerializer.Deserialize<ContributionProcessingMessage>(
+                        message.Payload,
+                        new JsonSerializerOptions
+                        {
+                            PropertyNameCaseInsensitive = true
+                        })
+                        ?? throw new InvalidOperationException(
+                            "Invalid processing message contract");
+                    var contributionId = msg.ContributionId;
+                    var organizationId = msg.OrganizationId;
 
                     using var innerScope = serviceProvider.CreateScope();
                     var inboxRepo = innerScope.ServiceProvider.GetRequiredService<IInboxRepository>();
                     var contributionRepo = innerScope.ServiceProvider.GetRequiredService<IContributionRepository>();
                     var stateTransitionRepo = innerScope.ServiceProvider.GetRequiredService<IStateTransitionRepository>();
+                    var jobRunRepo = innerScope.ServiceProvider.GetRequiredService<IJobRunRepository>();
+                    var jobAttemptRepo = innerScope.ServiceProvider.GetRequiredService<IJobAttemptRepository>();
                     var leaseRepo = innerScope.ServiceProvider.GetRequiredService<ILeaseRepository>();
                     var deadLetterRepo = innerScope.ServiceProvider.GetRequiredService<IDeadLetterRepository>();
                     var innerUnitOfWork = innerScope.ServiceProvider.GetRequiredService<IUnitOfWork>();
@@ -62,9 +81,40 @@ public class ProcessingHandlerService(
                     var faultInjector = innerScope.ServiceProvider.GetRequiredService<IWorkerFaultInjector>();
                     var sender = innerScope.ServiceProvider.GetRequiredService<ISender>();
 
+                    // New work creates JobRun together with Outbox. This
+                    // idempotent insert is the rolling-deployment fallback for
+                    // messages that were already in SQS before that change.
+                    await jobRunRepo.EnsurePendingAsync(new JobRun
+                    {
+                        Id = jobRunId,
+                        OrganizationId = organizationId,
+                        JobDefinitionId =
+                            KnownJobDefinitions.ContributionProcessingId,
+                        QueueUrl = QueueName,
+                        MessageId = message.MessageId,
+                        Payload = message.Payload,
+                        Status = JobStatus.Pending,
+                        CreatedAt = DateTime.UtcNow,
+                        Version = 0
+                    }, stoppingToken);
+
                     var existing = await inboxRepo.GetByMessageIdAsync(message.MessageId, stoppingToken);
                     if (existing is { Status: InboxStatus.Processed })
                     {
+                        var completedAt = DateTime.UtcNow;
+                        var completedJob = await jobRunRepo.GetByIdAsync(
+                            jobRunId,
+                            stoppingToken);
+                        completedJob?.MarkSucceeded(completedAt);
+                        var openAttempt =
+                            await jobAttemptRepo.GetRunningByJobRunAsync(
+                                jobRunId,
+                                stoppingToken);
+                        openAttempt?.Complete(
+                            JobAttemptStatus.Succeeded,
+                            completedAt);
+                        await innerUnitOfWork.SaveChangesAsync(
+                            stoppingToken);
                         await queueAdapter.DeleteAsync(queueUrl, message.ReceiptHandle, stoppingToken);
                         logger.LogInformation("Message {MessageId} already processed (inbox dedup)", message.MessageId);
                         return;
@@ -74,24 +124,99 @@ public class ProcessingHandlerService(
                     var lease = new Lease
                     {
                         Id = Guid.NewGuid(),
+                        JobRunId = jobRunId,
                         WorkerId = workerId,
-                        ExpiresAt = DateTime.UtcNow.AddSeconds(LeaseSeconds),
-                        JobRunId = Guid.NewGuid()
+                        ExpiresAt = DateTime.UtcNow.AddSeconds(LeaseSeconds)
                     };
-                    await leaseRepo.AddAsync(lease, stoppingToken);
+
+                    JobAttempt jobAttempt;
+                    await innerUnitOfWork.BeginTransactionAsync(
+                        stoppingToken);
+                    try
+                    {
+                        if (!await leaseRepo.TryAcquireAsync(
+                            lease,
+                            stoppingToken))
+                        {
+                            await innerUnitOfWork.RollbackAsync(
+                                stoppingToken);
+
+                            // A redelivery can become visible before the
+                            // crashed owner's lease expires. Do not ACK or
+                            // process it yet.
+                            var activeLease =
+                                await leaseRepo.GetActiveByJobRunAsync(
+                                    jobRunId,
+                                    stoppingToken);
+                            logger.LogWarning(
+                                "Message {MessageId} deferred because job {JobRunId} lease remains owned by {WorkerId} until {ExpiresAt}",
+                                message.MessageId,
+                                jobRunId,
+                                activeLease?.WorkerId ?? "unknown",
+                                activeLease?.ExpiresAt);
+                            return;
+                        }
+
+                        var acquiredAt = DateTime.UtcNow;
+                        var jobRun = await jobRunRepo.GetByIdAsync(
+                            jobRunId,
+                            stoppingToken)
+                            ?? throw new InvalidOperationException(
+                                $"JobRun {jobRunId} disappeared");
+
+                        // Defensive recovery for an administrator-released
+                        // Lease. The normal expiry scanner already closes the
+                        // crashed owner's running attempt.
+                        var abandonedAttempt =
+                            await jobAttemptRepo.GetRunningByJobRunAsync(
+                                jobRunId,
+                                stoppingToken);
+                        abandonedAttempt?.Complete(
+                            JobAttemptStatus.Abandoned,
+                            acquiredAt,
+                            "A new owner acquired the job after the previous lease ended");
+
+                        var attemptNumber =
+                            jobRun.StartAttempt(acquiredAt);
+                        jobAttempt = new JobAttempt
+                        {
+                            Id = Guid.NewGuid(),
+                            JobRunId = jobRunId,
+                            AttemptNumber = attemptNumber,
+                            LeaseId = lease.Id,
+                            WorkerId = workerId,
+                            StartedAt = acquiredAt,
+                            Status = JobAttemptStatus.Running
+                        };
+                        await jobAttemptRepo.AddAsync(
+                            jobAttempt,
+                            stoppingToken);
+                        await innerUnitOfWork.SaveChangesAsync(
+                            stoppingToken);
+                        await innerUnitOfWork.CommitAsync(
+                            stoppingToken);
+                    }
+                    catch
+                    {
+                        await innerUnitOfWork.RollbackAsync(
+                            CancellationToken.None);
+                        throw;
+                    }
+
+                    logger.LogInformation(
+                        "Worker {WorkerId} acquired lease {LeaseId} for job {JobRunId}; attempt {AttemptNumber} started",
+                        workerId,
+                        lease.Id,
+                        jobRunId,
+                        jobAttempt.AttemptNumber);
 
                     var heartbeatCts = new CancellationTokenSource();
-                    var heartbeatTask = HeartbeatLoop(leaseRepo, lease.Id, heartbeatCts.Token);
+                    var heartbeatTask = HeartbeatLoop(
+                        lease.Id,
+                        heartbeatCts.Token);
 
                     try
                     {
-                        var msg = JsonSerializer.Deserialize<ContributionProcessingMessage>(
-                            message.Payload,
-                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
-                            ?? throw new InvalidOperationException("Invalid processing message contract");
-                        var contributionId = msg.ContributionId;
-                        var organizationId = msg.OrganizationId;
-
                         TenantFilterAccessor.SetOrganizationId(organizationId);
 
                         var contribution = await contributionRepo.GetByIdAsync(contributionId, stoppingToken);
@@ -184,6 +309,15 @@ public class ProcessingHandlerService(
                                 ProcessedAt = DateTime.UtcNow,
                                 Status = InboxStatus.Processed
                             }, stoppingToken);
+                            await ApplyJobOutcomeAsync(
+                                jobRunRepo,
+                                jobAttemptRepo,
+                                jobRunId,
+                                jobAttempt.Id,
+                                JobAttemptStatus.Succeeded,
+                                JobStatus.Succeeded,
+                                null,
+                                stoppingToken);
                             await innerUnitOfWork.SaveChangesAsync(stoppingToken);
                             await queueAdapter.DeleteAsync(queueUrl, message.ReceiptHandle, stoppingToken);
                             return;
@@ -221,6 +355,17 @@ public class ProcessingHandlerService(
                             // and no SQS delete. Leave the message unacknowledged so
                             // it is redelivered after the circuit recovers.
                             logger.LogWarning("Contribution {ContributionId} deferred because circuit is open", contributionId);
+                            await ApplyJobOutcomeAsync(
+                                jobRunRepo,
+                                jobAttemptRepo,
+                                jobRunId,
+                                jobAttempt.Id,
+                                JobAttemptStatus.Deferred,
+                                JobStatus.Pending,
+                                "Provider circuit is open",
+                                stoppingToken);
+                            await innerUnitOfWork.SaveChangesAsync(
+                                stoppingToken);
                             return;
                         }
 
@@ -328,6 +473,15 @@ public class ProcessingHandlerService(
                         faultInjector.Inject(WorkerFaultPoint.BeforeInboxCommitted, contributionId.ToString());
                         await inboxRepo.AddAsync(inboxMessage, stoppingToken);
 
+                        await ApplyJobOutcomeAsync(
+                            jobRunRepo,
+                            jobAttemptRepo,
+                            jobRunId,
+                            jobAttempt.Id,
+                            JobAttemptStatus.Succeeded,
+                            JobStatus.Succeeded,
+                            null,
+                            stoppingToken);
                         await innerUnitOfWork.SaveChangesAsync(stoppingToken);
                         faultInjector.Inject(WorkerFaultPoint.AfterInboxCommitted, contributionId.ToString());
 
@@ -346,6 +500,13 @@ public class ProcessingHandlerService(
                             ex,
                             "Message {MessageId} lost optimistic concurrency; leaving unacknowledged for Inbox recovery",
                             message.MessageId);
+                        await RecordInterruptedJobAsync(
+                            organizationId,
+                            jobRunId,
+                            jobAttempt.Id,
+                            JobAttemptStatus.Abandoned,
+                            ex.Message,
+                            markJobPending: false);
                     }
                     catch (InvalidStateTransitionException ex)
                     {
@@ -353,7 +514,7 @@ public class ProcessingHandlerService(
                         await deadLetterRepo.AddAsync(new DeadLetterRecord
                         {
                             Id = Guid.NewGuid(),
-                            OrganizationId = Guid.Empty,
+                            OrganizationId = organizationId,
                             OriginalMessageId = message.MessageId,
                             MessageType = message.MessageType,
                             Payload = message.Payload,
@@ -362,18 +523,36 @@ public class ProcessingHandlerService(
                             AttemptCount = 1,
                             Status = DeadLetterStatus.Pending
                         }, stoppingToken);
+                        await ApplyJobOutcomeAsync(
+                            jobRunRepo,
+                            jobAttemptRepo,
+                            jobRunId,
+                            jobAttempt.Id,
+                            JobAttemptStatus.Failed,
+                            JobStatus.DeadLettered,
+                            ex.Message,
+                            stoppingToken);
                         await innerUnitOfWork.SaveChangesAsync(stoppingToken);
                         await queueAdapter.DeleteAsync(queueUrl, message.ReceiptHandle, stoppingToken);
                     }
                     catch (Exception ex)
                     {
                         logger.LogError(ex, "Error processing message {MessageId}", message.MessageId);
+                        await RecordInterruptedJobAsync(
+                            organizationId,
+                            jobRunId,
+                            jobAttempt.Id,
+                            JobAttemptStatus.Failed,
+                            ex.Message,
+                            markJobPending: true);
                     }
                     finally
                     {
                         heartbeatCts.Cancel();
                         try { await heartbeatTask; } catch { }
-                        await leaseRepo.ReleaseAsync(lease.Id, stoppingToken);
+                        await leaseRepo.ReleaseAsync(
+                            lease.Id,
+                            CancellationToken.None);
                         TenantFilterAccessor.Clear();
                     }
                 }
@@ -394,14 +573,112 @@ public class ProcessingHandlerService(
         logger.LogInformation("Processing Handler stopped");
     }
 
-    private async Task HeartbeatLoop(ILeaseRepository leaseRepo, Guid leaseId, CancellationToken cancellationToken)
+    private static async Task ApplyJobOutcomeAsync(
+        IJobRunRepository jobRunRepo,
+        IJobAttemptRepository jobAttemptRepo,
+        Guid jobRunId,
+        Guid jobAttemptId,
+        JobAttemptStatus attemptStatus,
+        JobStatus? jobStatus,
+        string? errorMessage,
+        CancellationToken cancellationToken)
+    {
+        var completedAt = DateTime.UtcNow;
+        var attempt = await jobAttemptRepo.GetByIdAsync(
+            jobAttemptId,
+            cancellationToken);
+        attempt?.Complete(
+            attemptStatus,
+            completedAt,
+            errorMessage);
+
+        if (!jobStatus.HasValue)
+        {
+            return;
+        }
+
+        var jobRun = await jobRunRepo.GetByIdAsync(
+            jobRunId,
+            cancellationToken);
+        if (jobRun is null)
+        {
+            return;
+        }
+
+        switch (jobStatus.Value)
+        {
+            case JobStatus.Pending:
+                jobRun.MarkPending();
+                break;
+            case JobStatus.Succeeded:
+                jobRun.MarkSucceeded(completedAt);
+                break;
+            case JobStatus.DeadLettered:
+                jobRun.MarkDeadLettered(completedAt);
+                break;
+            default:
+                throw new InvalidOperationException(
+                    $"Unsupported Job outcome {jobStatus.Value}");
+        }
+    }
+
+    private async Task RecordInterruptedJobAsync(
+        Guid organizationId,
+        Guid jobRunId,
+        Guid jobAttemptId,
+        JobAttemptStatus attemptStatus,
+        string? errorMessage,
+        bool markJobPending)
+    {
+        TenantFilterAccessor.SetOrganizationId(organizationId);
+        using var recoveryScope = serviceProvider.CreateScope();
+        var jobRunRepo = recoveryScope.ServiceProvider
+            .GetRequiredService<IJobRunRepository>();
+        var jobAttemptRepo = recoveryScope.ServiceProvider
+            .GetRequiredService<IJobAttemptRepository>();
+        var unitOfWork = recoveryScope.ServiceProvider
+            .GetRequiredService<IUnitOfWork>();
+
+        await ApplyJobOutcomeAsync(
+            jobRunRepo,
+            jobAttemptRepo,
+            jobRunId,
+            jobAttemptId,
+            attemptStatus,
+            markJobPending ? JobStatus.Pending : null,
+            errorMessage,
+            CancellationToken.None);
+        await unitOfWork.SaveChangesAsync(CancellationToken.None);
+    }
+
+    private static Guid ResolveJobRunId(string messageId)
+    {
+        if (Guid.TryParse(messageId, out var parsed))
+        {
+            return parsed;
+        }
+
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(messageId));
+        return new Guid(hash.AsSpan(0, 16));
+    }
+
+    private async Task HeartbeatLoop(
+        Guid leaseId,
+        CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
             try
             {
                 await Task.Delay(HeartbeatIntervalMs, cancellationToken);
-                await leaseRepo.RenewAsync(leaseId, DateTime.UtcNow.AddSeconds(LeaseSeconds), cancellationToken);
+                using var heartbeatScope =
+                    serviceProvider.CreateScope();
+                var leaseRepo = heartbeatScope.ServiceProvider
+                    .GetRequiredService<ILeaseRepository>();
+                await leaseRepo.RenewAsync(
+                    leaseId,
+                    DateTime.UtcNow.AddSeconds(LeaseSeconds),
+                    cancellationToken);
             }
             catch (OperationCanceledException) { break; }
             catch { break; }

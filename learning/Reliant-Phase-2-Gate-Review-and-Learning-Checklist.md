@@ -587,15 +587,26 @@ Worker 收到消息后非正常崩溃，消息会重新出现并由其他 Worker
 
 Worker 崩溃后 Lease 过期，其他 Worker 可以接管 Job。
 
+> 2026-08-03 已执行：**PASS（E1 + E2）**。
+>
+> 学习实验报告：`learning/phase-2/exp5-lease-expiry.md`
+>
+> Outbox 与 JobRun 同事务创建；PostgreSQL 部分唯一索引保证同一个 JobRun
+> 最多一个 active Lease。真实 Worker A 在 JobRun=Running、Attempt 1=Running
+> 时被 `docker kill`；Worker B 在旧 Lease 有效时拒绝接管。Maintenance scanner
+> 将 Attempt 1 标为 Abandoned、JobRun 放回 Pending 后，Worker B 以 Attempt 2
+> 接管并最终把 JobRun 完成到 Succeeded。并发领取测试确认两个 contender 只有
+> 一个 winner。
+
 ### 步骤
 
-- [ ] Worker A 获取 Job
-- [ ] Job 进入 Processing
-- [ ] 强制终止 Worker A
-- [ ] 等待 Lease 到期
-- [ ] Worker B 扫描过期 Job
-- [ ] Worker B 接管并完成
-- [ ] 检查 Attempt 和状态转换
+- [x] Worker A 获取 Job
+- [x] Job 进入 Processing
+- [x] 强制终止 Worker A
+- [x] 等待 Lease 到期
+- [x] Worker B 扫描过期 Job
+- [x] Worker B 接管并完成
+- [x] 检查 Attempt 和状态转换
 
 ### PASS 条件
 
@@ -837,13 +848,13 @@ evidence/
 
 ## Lease / Heartbeat / Checkpoint
 
-- [ ] Lease 原子获取
-- [ ] Lease 有过期时间
-- [ ] Heartbeat 可更新
+- [x] Lease 原子获取
+- [x] Lease 有过期时间
+- [x] Heartbeat 可更新
 - [ ] Heartbeat 失败行为明确
-- [ ] Lease 过期可接管
+- [x] Lease 过期可接管
 - [ ] Checkpoint 持久化
-- [ ] Worker Crash 后恢复已验证
+- [x] Worker Crash 后恢复已验证
 
 ---
 
@@ -1011,17 +1022,17 @@ Lease 过期
 - [ ] API → DB → Outbox → Queue → Worker 链路运行
 - [ ] Queue Adapter 可以在 LocalStack SQS 工作
 - [ ] Inbox / Idempotency 生效
-- [ ] Job / Attempt / Lease / Heartbeat 数据可查询
+- [x] Job / Attempt / Lease / Heartbeat 数据可查询
 - [ ] Retry 与 DLQ 工作
 - [ ] CLI 可以查询 Job 和 Dead-letter
 
 ## Reliability Gate
 
-- [ ] DB 状态和 Outbox 原子提交
+- [x] DB 状态和 Outbox 原子提交
 - [ ] Duplicate Publish 不产生重复业务结果
 - [ ] Duplicate Delivery 不产生重复业务结果
 - [ ] Worker Crash 后任务可恢复
-- [ ] Lease Expiry 后其他 Worker 可接管
+- [x] Lease Expiry 后其他 Worker 可接管
 - [ ] Poison Message 不阻塞正常队列
 - [ ] Retry 有分类、上限、Backoff 和 Jitter
 - [ ] Retry Exhaustion 有明确终态
@@ -1062,10 +1073,10 @@ Lease 过期
 
 进入 Phase 3 前，不需要实现以下功能，但 Phase 2 不能把架构写死。
 
-- [ ] Message 有稳定 MessageId
+- [x] Message 有稳定 MessageId
 - [ ] 有 CorrelationId
 - [ ] 有 CausationId 或明确的因果关系表达
-- [ ] JobAttempt 可持久化
+- [x] JobAttempt 可持久化
 - [ ] Handler 可以表达不同 Error Category
 - [ ] Queue Adapter 不耦合具体 Provider
 - [ ] Reconciliation Handler 可以继续扩展

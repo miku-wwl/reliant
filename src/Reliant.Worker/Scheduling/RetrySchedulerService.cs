@@ -26,6 +26,7 @@ public class RetrySchedulerService : IRetryScheduler
     private readonly IStateTransitionRepository _stateTransitionRepo;
     private readonly IDeadLetterRepository _deadLetterRepo;
     private readonly IOutboxRepository _outboxRepo;
+    private readonly IJobRunRepository _jobRunRepo;
     private readonly IUnitOfWork _unitOfWork;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<RetrySchedulerService> _logger;
@@ -35,6 +36,7 @@ public class RetrySchedulerService : IRetryScheduler
         IStateTransitionRepository stateTransitionRepo,
         IDeadLetterRepository deadLetterRepo,
         IOutboxRepository outboxRepo,
+        IJobRunRepository jobRunRepo,
         IUnitOfWork unitOfWork,
         TimeProvider timeProvider,
         ILogger<RetrySchedulerService> logger)
@@ -43,6 +45,7 @@ public class RetrySchedulerService : IRetryScheduler
         _stateTransitionRepo = stateTransitionRepo;
         _deadLetterRepo = deadLetterRepo;
         _outboxRepo = outboxRepo;
+        _jobRunRepo = jobRunRepo;
         _unitOfWork = unitOfWork;
         _timeProvider = timeProvider;
         _logger = logger;
@@ -78,7 +81,7 @@ public class RetrySchedulerService : IRetryScheduler
                     // scheduled so the worker owns RetryPending -> Processing. Sync the
                     // in-memory entity so tracked reads are consistent with the DB.
                     contribution.NextRetryAt = null;
-                    await _outboxRepo.AddAsync(new OutboxMessage
+                    var retryMessage = new OutboxMessage
                     {
                         Id = Guid.NewGuid(),
                         OrganizationId = contribution.OrganizationId,
@@ -93,7 +96,11 @@ public class RetrySchedulerService : IRetryScheduler
                         OccurredAt = now,
                         Status = OutboxStatus.Pending,
                         Version = 0
-                    }, ct);
+                    };
+                    await _outboxRepo.AddAsync(retryMessage, ct);
+                    await _jobRunRepo.AddAsync(
+                        JobRun.ForContributionProcessing(retryMessage),
+                        ct);
 
                     _logger.LogInformation("Contribution {ContributionId} scheduled for retry (retry #{RetryCount})", contribution.Id, contribution.RetryCount);
                 }

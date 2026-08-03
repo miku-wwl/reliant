@@ -9,3 +9,12 @@ public enum JobStatus
     DeadLettered = 5,
     Cancelled = 6
 }
+
+public enum JobAttemptStatus
+{
+    Running = 1,
+    Succeeded = 2,
+    Failed = 3,
+    Abandoned = 4,
+    Deferred = 5
+}

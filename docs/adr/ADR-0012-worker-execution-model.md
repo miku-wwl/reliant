@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted — implemented and verified by Phase 2 Experiment 5
 
 ## Context
 
@@ -25,10 +25,14 @@ JobRun           - 一次具体执行：状态、开始时间、结束时间
 
 ### 2. Lease + Heartbeat 机制
 
+- 处理类 Outbox 与 JobRun 在同一个数据库事务中创建，二者使用同一个 Id
 - Worker 领取消息后创建 Lease，有效期 30 秒
+- 数据库部分唯一索引保证同一 JobRun 最多一个 active Lease
+- Lease、JobRun Running、JobAttempt Running 在同一事务开始
 - Worker 每 10 秒续约一次（Heartbeat）
 - 如果 Worker 崩了，Lease 30 秒后过期
-- Scheduled Maintenance Handler 扫描过期 Lease，将 JobRun 标记为可重新领取
+- Scheduled Maintenance Handler 在同一事务中释放过期 Lease、把旧 JobAttempt
+  标成 Abandoned，并将 JobRun 放回 Pending
 - SQS Visibility Timeout 设为 35 秒（略大于 Lease），确保 Lease 过期后消息重新可见
 
 ### 3. Checkpoint 机制
@@ -62,6 +66,10 @@ JobRun           - 一次具体执行：状态、开始时间、结束时间
 ## Consequences
 
 - JobRun/JobAttempt/Lease/Checkpoint 共 4 张新表
+- JobAttempt 明确记录 Running、Succeeded、Failed、Abandoned、Deferred
+- JobDefinition、JobRun、JobAttempt、Lease 之间由数据库外键和唯一约束保护
 - Lease 续约增加数据库写入（每 10 秒一次），但量不大
 - SQS Visibility Timeout 必须大于 Lease 有效期
 - Worker 重启后不自动恢复之前的 JobRun，靠 Lease 过期触发重新分配
+- 长任务还需要同步延长 SQS Visibility Timeout
+- 若旧 Worker 只是暂停后恢复，仍需 fencing token 阻止过期 Owner 提交

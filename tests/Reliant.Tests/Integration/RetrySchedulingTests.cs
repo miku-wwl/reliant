@@ -41,6 +41,7 @@ public class RetrySchedulingTests : IClassFixture<PostgreSqlFixture>
         services.AddScoped<IStateTransitionRepository, StateTransitionRepository>();
         services.AddScoped<IAuditEventRepository, AuditEventRepository>();
         services.AddScoped<IOutboxRepository, OutboxRepository>();
+        services.AddScoped<IJobRunRepository, JobRunRepository>();
         services.AddScoped<IInboxRepository, InboxRepository>();
         services.AddScoped<IProcessingAttemptRepository, ProcessingAttemptRepository>();
         services.AddScoped<IProviderReferenceRepository, ProviderReferenceRepository>();
@@ -145,6 +146,10 @@ public class RetrySchedulingTests : IClassFixture<PostgreSqlFixture>
             .Where(o => o.MessageType == "ContributionRetryRequested" && o.OrganizationId == orgId)
             .ToListAsync();
         Assert.Single(outbox);
+        var jobRun = await db.Set<JobRun>().IgnoreQueryFilters()
+            .SingleAsync(j => j.Id == outbox[0].Id);
+        Assert.Equal(JobStatus.Pending, jobRun.Status);
+        Assert.Equal(outbox[0].Id.ToString(), jobRun.MessageId);
 
         var contribution = await db.Set<Contribution>().IgnoreQueryFilters().SingleAsync(c => c.Id == contributionId);
         // Stays RetryPending (worker owns the transition) and marked scheduled.
@@ -179,6 +184,10 @@ public class RetrySchedulingTests : IClassFixture<PostgreSqlFixture>
 
         // Only one retry message may ever be dispatched for the contribution.
         Assert.Single(outbox);
+        Assert.Equal(
+            1,
+            await db.Set<JobRun>().IgnoreQueryFilters()
+                .CountAsync(j => j.Id == outbox[0].Id));
     }
 
     [Fact]

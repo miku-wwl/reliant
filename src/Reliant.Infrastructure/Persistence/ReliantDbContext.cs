@@ -160,6 +160,16 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.Name).HasMaxLength(128).IsRequired();
             e.Property(x => x.HandlerName).HasMaxLength(128).IsRequired();
             e.Property(x => x.RetryPolicy).HasMaxLength(64).IsRequired();
+            e.HasData(new JobDefinition
+            {
+                Id = KnownJobDefinitions.ContributionProcessingId,
+                Name = KnownJobDefinitions.ContributionProcessingName,
+                HandlerName =
+                    KnownJobDefinitions.ContributionProcessingHandler,
+                MaxAttempts = 5,
+                TimeoutSeconds = 30,
+                RetryPolicy = "exponential"
+            });
         });
 
         modelBuilder.Entity<JobRun>(e =>
@@ -172,6 +182,11 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.Status).HasConversion<int>();
             e.Property(x => x.Version).IsConcurrencyToken();
             e.HasIndex(x => new { x.OrganizationId, x.Status });
+            e.HasIndex(x => x.MessageId).IsUnique();
+            e.HasOne<JobDefinition>()
+                .WithMany()
+                .HasForeignKey(x => x.JobDefinitionId)
+                .OnDelete(DeleteBehavior.Restrict);
             e.HasQueryFilter(x => x.OrganizationId == TenantOrganizationId);
         });
 
@@ -179,9 +194,16 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
         {
             e.ToTable("job_attempts");
             e.HasKey(x => x.Id);
+            e.Property(x => x.WorkerId).HasMaxLength(128).IsRequired();
+            e.Property(x => x.Status).HasConversion<int>();
             e.Property(x => x.ErrorCategory).HasConversion<int>();
             e.Property(x => x.ErrorMessage).HasMaxLength(2000);
-            e.HasIndex(x => x.JobRunId);
+            e.HasIndex(x => new { x.JobRunId, x.AttemptNumber })
+                .IsUnique();
+            e.HasOne<JobRun>()
+                .WithMany()
+                .HasForeignKey(x => x.JobRunId)
+                .OnDelete(DeleteBehavior.Restrict);
             e.HasQueryFilter(x => false);
         });
 
@@ -191,6 +213,13 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.HasKey(x => x.Id);
             e.Property(x => x.WorkerId).HasMaxLength(128).IsRequired();
             e.HasIndex(x => x.ExpiresAt);
+            e.HasIndex(x => x.JobRunId)
+                .IsUnique()
+                .HasFilter("\"IsActive\"");
+            e.HasOne<JobRun>()
+                .WithMany()
+                .HasForeignKey(x => x.JobRunId)
+                .OnDelete(DeleteBehavior.Restrict);
             e.HasQueryFilter(x => false);
         });
 

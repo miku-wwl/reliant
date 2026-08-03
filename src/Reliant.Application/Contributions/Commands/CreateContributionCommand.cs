@@ -21,6 +21,7 @@ public class CreateContributionHandler(
     IStateTransitionRepository stateTransitionRepository,
     IAuditEventRepository auditEventRepository,
     IOutboxRepository outboxRepository,
+    IJobRunRepository jobRunRepository,
     IUnitOfWork unitOfWork,
     ITenantContext tenantContext) : IRequestHandler<CreateContributionCommand, IdempotentResponse<ContributionResponse>>
 {
@@ -131,6 +132,9 @@ public class CreateContributionHandler(
             Version = 0
         };
         await outboxRepository.AddAsync(outboxMessage, cancellationToken);
+        await jobRunRepository.AddAsync(
+            JobRun.ForContributionProcessing(outboxMessage),
+            cancellationToken);
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
