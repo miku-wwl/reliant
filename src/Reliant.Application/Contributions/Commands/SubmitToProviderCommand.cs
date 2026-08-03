@@ -7,7 +7,14 @@ using System.Text.Json;
 
 namespace Reliant.Application.Contributions.Commands;
 
-public record SubmitToProviderCommand(Guid ContributionId, Guid OrganizationId, decimal Amount, string Currency, string ExternalReference) : IRequest<ProviderSubmissionResult>;
+public record SubmitToProviderCommand(
+    Guid ContributionId,
+    Guid OrganizationId,
+    decimal Amount,
+    string Currency,
+    string ExternalReference,
+    JobExecutionFence? ExecutionFence = null)
+    : IRequest<ProviderSubmissionResult>;
 
 public enum ProviderSubmissionDisposition
 {
@@ -33,7 +40,9 @@ public class SubmitToProviderHandler(
     IUnitOfWork unitOfWork,
     CircuitBreaker circuitBreaker,
     IProviderOperationKeyFactory keyFactory,
-    IWorkerFaultInjector? faultInjector = null) : IRequestHandler<SubmitToProviderCommand, ProviderSubmissionResult>
+    IWorkerFaultInjector? faultInjector = null,
+    ILeaseRepository? leaseRepository = null)
+    : IRequestHandler<SubmitToProviderCommand, ProviderSubmissionResult>
 {
     private const string ProviderName = "sandbox";
     private readonly IWorkerFaultInjector _faultInjector = faultInjector ?? new NoopWorkerFaultInjector();
@@ -86,7 +95,9 @@ public class SubmitToProviderHandler(
         // same-numbered attempt for this contribution (UNIQUE(ContributionId,
         // AttemptNumber)), this worker loses safely and defers instead of
         // throwing; the redelivered message will observe the winner's reference.
-        if (!await unitOfWork.TrySaveChangesAsync(ct))
+        if (!await TrySaveChangesAsync(
+            request.ExecutionFence,
+            ct))
         {
             return new ProviderSubmissionResult(
                 AttemptStatus.Pending, null, null, "Concurrent submit already in progress",
@@ -129,7 +140,18 @@ public class SubmitToProviderHandler(
                     }, ct);
                 }
 
-                await unitOfWork.SaveChangesAsync(ct);
+                if (!await TrySaveChangesAsync(
+                    request.ExecutionFence,
+                    ct))
+                {
+                    return new ProviderSubmissionResult(
+                        AttemptStatus.Succeeded,
+                        result.ProviderReference,
+                        null,
+                        "Concurrent provider reference " +
+                        "already committed");
+                }
+
                 return new ProviderSubmissionResult(AttemptStatus.Succeeded, result.ProviderReference, null, null);
             }
 
@@ -140,7 +162,9 @@ public class SubmitToProviderHandler(
                 attempt.ErrorMessage = result.ErrorMessage;
                 circuitBreaker.RecordFailure(result.ErrorCategory);
 
-                await unitOfWork.SaveChangesAsync(ct);
+                await SaveChangesAsync(
+                    request.ExecutionFence,
+                    ct);
                 var disposition = result.ErrorCategory is ErrorCategory.PermanentBusinessRejection or ErrorCategory.ValidationFailure or ErrorCategory.AuthenticationFailure
                     ? ProviderSubmissionDisposition.DefinitiveFailure
                     : ProviderSubmissionDisposition.RetryableFailure;
@@ -152,8 +176,14 @@ public class SubmitToProviderHandler(
             attempt.ErrorMessage = result.ErrorMessage;
             circuitBreaker.RecordFailure(result.ErrorCategory);
 
-            await unitOfWork.SaveChangesAsync(ct);
+            await SaveChangesAsync(
+                request.ExecutionFence,
+                ct);
             return new ProviderSubmissionResult(AttemptStatus.Unknown, null, result.ErrorCategory, result.ErrorMessage, ProviderSubmissionDisposition.Unknown);
+        }
+        catch (StaleJobOwnerException)
+        {
+            throw;
         }
         catch (OperationCanceledException)
             when (ct.IsCancellationRequested)
@@ -167,7 +197,8 @@ public class SubmitToProviderHandler(
             attempt.ErrorMessage =
                 "Provider submission interrupted by worker shutdown";
             attempt.CompletedAt = DateTime.UtcNow;
-            await unitOfWork.SaveChangesAsync(
+            await SaveChangesAsync(
+                request.ExecutionFence,
                 CancellationToken.None);
             throw;
         }
@@ -179,8 +210,98 @@ public class SubmitToProviderHandler(
             attempt.CompletedAt = DateTime.UtcNow;
             circuitBreaker.RecordFailure(ErrorCategory.Timeout);
 
-            await unitOfWork.SaveChangesAsync(ct);
+            await SaveChangesAsync(
+                request.ExecutionFence,
+                ct);
             return new ProviderSubmissionResult(AttemptStatus.Unknown, null, ErrorCategory.Timeout, ex.Message, ProviderSubmissionDisposition.Unknown);
+        }
+    }
+
+    private async Task<bool> TrySaveChangesAsync(
+        JobExecutionFence? fence,
+        CancellationToken cancellationToken)
+    {
+        if (!fence.HasValue)
+        {
+            return await unitOfWork.TrySaveChangesAsync(
+                cancellationToken);
+        }
+
+        await unitOfWork.BeginTransactionAsync(
+            cancellationToken);
+        try
+        {
+            await LockFenceOrThrowAsync(
+                fence.Value,
+                cancellationToken);
+            var saved = await unitOfWork.TrySaveChangesAsync(
+                cancellationToken);
+            if (!saved)
+            {
+                await unitOfWork.RollbackAsync(
+                    CancellationToken.None);
+                return false;
+            }
+
+            await unitOfWork.CommitAsync(
+                cancellationToken);
+            return true;
+        }
+        catch
+        {
+            await unitOfWork.RollbackAsync(
+                CancellationToken.None);
+            throw;
+        }
+    }
+
+    private async Task SaveChangesAsync(
+        JobExecutionFence? fence,
+        CancellationToken cancellationToken)
+    {
+        if (!fence.HasValue)
+        {
+            await unitOfWork.SaveChangesAsync(
+                cancellationToken);
+            return;
+        }
+
+        await unitOfWork.BeginTransactionAsync(
+            cancellationToken);
+        try
+        {
+            await LockFenceOrThrowAsync(
+                fence.Value,
+                cancellationToken);
+            await unitOfWork.SaveChangesAsync(
+                cancellationToken);
+            await unitOfWork.CommitAsync(
+                cancellationToken);
+        }
+        catch
+        {
+            await unitOfWork.RollbackAsync(
+                CancellationToken.None);
+            throw;
+        }
+    }
+
+    private async Task LockFenceOrThrowAsync(
+        JobExecutionFence fence,
+        CancellationToken cancellationToken)
+    {
+        var requiredLeaseRepository =
+            leaseRepository ??
+            throw new InvalidOperationException(
+                "Fenced provider submission requires " +
+                "an ILeaseRepository");
+        if (!await requiredLeaseRepository
+            .TryLockCurrentOwnerAsync(
+            fence,
+            DateTime.UtcNow,
+            cancellationToken))
+        {
+            throw new StaleJobOwnerException(fence);
         }
     }
 }

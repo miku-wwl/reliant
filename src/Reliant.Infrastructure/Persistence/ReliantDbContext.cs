@@ -180,6 +180,7 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.MessageId).HasMaxLength(128).IsRequired();
             e.Property(x => x.Payload).IsRequired();
             e.Property(x => x.Status).HasConversion<int>();
+            e.Property(x => x.FencingToken);
             e.Property(x => x.Version).IsConcurrencyToken();
             e.HasIndex(x => new { x.OrganizationId, x.Status });
             e.HasIndex(x => x.MessageId).IsUnique();
@@ -196,6 +197,7 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.HasKey(x => x.Id);
             e.Property(x => x.WorkerId).HasMaxLength(128).IsRequired();
             e.Property(x => x.Status).HasConversion<int>();
+            e.Property(x => x.FencingToken);
             e.Property(x => x.ErrorCategory).HasConversion<int>();
             e.Property(x => x.ErrorMessage).HasMaxLength(2000);
             e.HasIndex(x => new { x.JobRunId, x.AttemptNumber })
@@ -212,6 +214,7 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.ToTable("leases");
             e.HasKey(x => x.Id);
             e.Property(x => x.WorkerId).HasMaxLength(128).IsRequired();
+            e.Property(x => x.FencingToken);
             e.HasIndex(x => x.ExpiresAt);
             e.HasIndex(x => x.JobRunId)
                 .IsUnique()

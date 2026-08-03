@@ -127,6 +127,7 @@ public class ProcessingHandlerService(
                         Payload = message.Payload,
                         Status = JobStatus.Pending,
                         CreatedAt = DateTime.UtcNow,
+                        FencingToken = 0,
                         Version = 0
                     }, stoppingToken);
 
@@ -216,6 +217,8 @@ public class ProcessingHandlerService(
                             JobRunId = jobRunId,
                             AttemptNumber = attemptNumber,
                             LeaseId = lease.Id,
+                            FencingToken =
+                                lease.FencingToken,
                             WorkerId = workerId,
                             StartedAt = acquiredAt,
                             Status = JobAttemptStatus.Running
@@ -236,12 +239,18 @@ public class ProcessingHandlerService(
                     }
 
                     logger.LogInformation(
-                        "Worker {WorkerId} acquired lease {LeaseId} for job {JobRunId}; attempt {AttemptNumber} started",
+                        "Worker {WorkerId} acquired lease {LeaseId} for job {JobRunId} with fencing token {FencingToken}; attempt {AttemptNumber} started",
                         workerId,
                         lease.Id,
                         jobRunId,
+                        lease.FencingToken,
                         jobAttempt.AttemptNumber);
 
+                    var executionFence =
+                        new JobExecutionFence(
+                            jobRunId,
+                            lease.Id,
+                            lease.FencingToken);
                     var heartbeatCts = new CancellationTokenSource();
                     var heartbeatTask = HeartbeatLoop(
                         lease.Id,
@@ -296,7 +305,11 @@ public class ProcessingHandlerService(
                                 }, stoppingToken);
 
                                 await contributionRepo.UpdateAsync(contribution, stoppingToken);
-                                await innerUnitOfWork.SaveChangesAsync(stoppingToken);
+                                await SaveFencedAsync(
+                                    innerUnitOfWork,
+                                    leaseRepo,
+                                    executionFence,
+                                    stoppingToken);
                                 break;
 
                             case ContributionState.RetryPending:
@@ -311,7 +324,11 @@ public class ProcessingHandlerService(
                                     Reason = "Retry picked up by worker",
                                     ChangedBy = workerId
                                 }, stoppingToken);
-                                await innerUnitOfWork.SaveChangesAsync(stoppingToken);
+                                await SaveFencedAsync(
+                                    innerUnitOfWork,
+                                    leaseRepo,
+                                    executionFence,
+                                    stoppingToken);
                                 break;
 
                             case ContributionState.Processing:
@@ -350,15 +367,26 @@ public class ProcessingHandlerService(
                                 JobStatus.Succeeded,
                                 null,
                                 stoppingToken);
-                            await innerUnitOfWork.SaveChangesAsync(stoppingToken);
+                            await SaveFencedAsync(
+                                innerUnitOfWork,
+                                leaseRepo,
+                                executionFence,
+                                stoppingToken);
                             await queueAdapter.DeleteAsync(queueUrl, message.ReceiptHandle, stoppingToken);
                             return;
                         }
 
                         var stateBeforeProviderCall = contribution.State;
 
-                        var submitResult = await sender.Send(new SubmitToProviderCommand(
-                            contributionId, organizationId, amount, currency, contribution.ExternalReference), stoppingToken);
+                        var submitResult = await sender.Send(
+                            new SubmitToProviderCommand(
+                                contributionId,
+                                organizationId,
+                                amount,
+                                currency,
+                                contribution.ExternalReference,
+                                executionFence),
+                            stoppingToken);
                         var jobAttemptOutcome =
                             JobAttemptStatus.Succeeded;
                         var jobOutcome = JobStatus.Succeeded;
@@ -400,7 +428,10 @@ public class ProcessingHandlerService(
                                 JobStatus.Pending,
                                 "Provider circuit is open",
                                 stoppingToken);
-                            await innerUnitOfWork.SaveChangesAsync(
+                            await SaveFencedAsync(
+                                innerUnitOfWork,
+                                leaseRepo,
+                                executionFence,
                                 stoppingToken);
                             return;
                         }
@@ -573,13 +604,27 @@ public class ProcessingHandlerService(
                             jobOutcome,
                             jobError,
                             stoppingToken);
-                        await innerUnitOfWork.SaveChangesAsync(stoppingToken);
+                        await SaveFencedAsync(
+                            innerUnitOfWork,
+                            leaseRepo,
+                            executionFence,
+                            stoppingToken);
                         faultInjector.Inject(WorkerFaultPoint.AfterInboxCommitted, contributionId.ToString());
 
                         faultInjector.Inject(WorkerFaultPoint.BeforeMessageAck, contributionId.ToString());
                         await queueAdapter.DeleteAsync(queueUrl, message.ReceiptHandle, stoppingToken);
 
                         logger.LogInformation("Message {MessageId} processed, attempt status: {Status}", message.MessageId, submitResult.Status);
+                    }
+                    catch (StaleJobOwnerException ex)
+                    {
+                        logger.LogWarning(
+                            ex,
+                            "Fencing rejected stale worker {WorkerId} for job {JobRunId}; lease {LeaseId}; token {FencingToken}; message left unacknowledged",
+                            workerId,
+                            ex.Fence.JobRunId,
+                            ex.Fence.LeaseId,
+                            ex.Fence.FencingToken);
                     }
                     catch (OperationCanceledException)
                         when (stoppingToken.IsCancellationRequested)
@@ -639,7 +684,11 @@ public class ProcessingHandlerService(
                             JobStatus.DeadLettered,
                             ex.Message,
                             stoppingToken);
-                        await innerUnitOfWork.SaveChangesAsync(stoppingToken);
+                        await SaveFencedAsync(
+                            innerUnitOfWork,
+                            leaseRepo,
+                            executionFence,
+                            stoppingToken);
                         await queueAdapter.DeleteAsync(queueUrl, message.ReceiptHandle, stoppingToken);
                     }
                     catch (Exception ex)
@@ -755,6 +804,38 @@ public class ProcessingHandlerService(
             default:
                 throw new InvalidOperationException(
                     $"Unsupported Job outcome {jobStatus.Value}");
+        }
+    }
+
+    private static async Task SaveFencedAsync(
+        IUnitOfWork unitOfWork,
+        ILeaseRepository leaseRepository,
+        JobExecutionFence fence,
+        CancellationToken cancellationToken)
+    {
+        await unitOfWork.BeginTransactionAsync(
+            cancellationToken);
+        try
+        {
+            if (!await leaseRepository
+                .TryLockCurrentOwnerAsync(
+                    fence,
+                    DateTime.UtcNow,
+                    cancellationToken))
+            {
+                throw new StaleJobOwnerException(fence);
+            }
+
+            await unitOfWork.SaveChangesAsync(
+                cancellationToken);
+            await unitOfWork.CommitAsync(
+                cancellationToken);
+        }
+        catch
+        {
+            await unitOfWork.RollbackAsync(
+                CancellationToken.None);
+            throw;
         }
     }
 

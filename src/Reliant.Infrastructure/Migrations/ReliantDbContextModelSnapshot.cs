@@ -359,6 +359,9 @@ namespace Reliant.Infrastructure.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
+                    b.Property<long>("FencingToken")
+                        .HasColumnType("bigint");
+
                     b.Property<Guid>("JobRunId")
                         .HasColumnType("uuid");
 
@@ -442,6 +445,9 @@ namespace Reliant.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<long>("FencingToken")
+                        .HasColumnType("bigint");
+
                     b.Property<Guid>("JobDefinitionId")
                         .HasColumnType("uuid");
 
@@ -495,6 +501,9 @@ namespace Reliant.Infrastructure.Migrations
 
                     b.Property<DateTime>("ExpiresAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("FencingToken")
+                        .HasColumnType("bigint");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");

@@ -165,6 +165,8 @@ public class DuplicateDeliveryE2ETests(ITestOutputHelper output)
     /// </summary>
     private sealed class PermissiveLeaseRepository : ILeaseRepository
     {
+        private long _nextFencingToken;
+
         public Task<Lease?> GetActiveByJobRunAsync(
             Guid jobRunId,
             CancellationToken cancellationToken = default)
@@ -172,6 +174,17 @@ public class DuplicateDeliveryE2ETests(ITestOutputHelper output)
 
         public Task<bool> TryAcquireAsync(
             Lease lease,
+            CancellationToken cancellationToken = default)
+        {
+            lease.FencingToken =
+                Interlocked.Increment(
+                    ref _nextFencingToken);
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> TryLockCurrentOwnerAsync(
+            JobExecutionFence fence,
+            DateTime now,
             CancellationToken cancellationToken = default)
             => Task.FromResult(true);
 

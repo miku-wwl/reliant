@@ -40,6 +40,7 @@ public class JobRun
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public long FencingToken { get; set; }
     public int Version { get; set; }
 
     public static JobRun ForContributionProcessing(
@@ -57,6 +58,7 @@ public class JobRun
             Payload = message.Payload,
             Status = JobStatus.Pending,
             CreatedAt = message.OccurredAt,
+            FencingToken = 0,
             Version = 0
         };
     }
@@ -130,6 +132,7 @@ public class JobAttempt
     public Guid JobRunId { get; set; }
     public int AttemptNumber { get; set; }
     public Guid? LeaseId { get; set; }
+    public long FencingToken { get; set; }
     public string WorkerId { get; set; } = string.Empty;
     public DateTime StartedAt { get; set; } = DateTime.UtcNow;
     public DateTime? CompletedAt { get; set; }
@@ -159,11 +162,27 @@ public class Lease
 {
     public Guid Id { get; set; }
     public Guid JobRunId { get; set; }
+    public long FencingToken { get; set; }
     public string WorkerId { get; set; } = string.Empty;
     public DateTime AcquiredAt { get; set; } = DateTime.UtcNow;
     public DateTime ExpiresAt { get; set; }
     public DateTime? LastHeartbeatAt { get; set; }
     public bool IsActive { get; set; } = true;
+}
+
+public readonly record struct JobExecutionFence(
+    Guid JobRunId,
+    Guid LeaseId,
+    long FencingToken);
+
+public sealed class StaleJobOwnerException(
+    JobExecutionFence fence)
+    : InvalidOperationException(
+        $"Job {fence.JobRunId} rejected stale owner " +
+        $"lease {fence.LeaseId} with fencing token " +
+        $"{fence.FencingToken}")
+{
+    public JobExecutionFence Fence { get; } = fence;
 }
 
 public class Checkpoint

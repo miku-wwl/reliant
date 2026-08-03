@@ -38,6 +38,7 @@ public interface ILeaseRepository
 {
     Task<Lease?> GetActiveByJobRunAsync(Guid jobRunId, CancellationToken cancellationToken = default);
     Task<bool> TryAcquireAsync(Lease lease, CancellationToken cancellationToken = default);
+    Task<bool> TryLockCurrentOwnerAsync(JobExecutionFence fence, DateTime now, CancellationToken cancellationToken = default);
     Task RenewAsync(Guid leaseId, DateTime newExpiresAt, CancellationToken cancellationToken = default);
     Task ReleaseAsync(Guid leaseId, CancellationToken cancellationToken = default);
     Task<bool> TryReleaseExpiredAsync(Guid leaseId, DateTime now, CancellationToken cancellationToken = default);

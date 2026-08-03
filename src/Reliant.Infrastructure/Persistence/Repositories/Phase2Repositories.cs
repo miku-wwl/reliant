@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Reliant.Application.Abstractions;
 using Reliant.Domain.Entities;
 using Reliant.Domain.Enums;
@@ -105,6 +106,7 @@ public class JobRunRepository(ReliantDbContext db) : IJobRunRepository
                 "StartedAt",
                 "CompletedAt",
                 "CreatedAt",
+                "FencingToken",
                 "Version")
             VALUES (
                 {jobRun.Id},
@@ -118,6 +120,7 @@ public class JobRunRepository(ReliantDbContext db) : IJobRunRepository
                 {jobRun.StartedAt},
                 {jobRun.CompletedAt},
                 {jobRun.CreatedAt},
+                {jobRun.FencingToken},
                 {jobRun.Version})
             ON CONFLICT ("Id") DO NOTHING
             """, cancellationToken);
@@ -189,29 +192,176 @@ public class LeaseRepository(ReliantDbContext db) : ILeaseRepository
         Lease lease,
         CancellationToken cancellationToken = default)
     {
-        var affected = await db.Database.ExecuteSqlInterpolatedAsync($"""
-            INSERT INTO leases (
-                "Id",
-                "JobRunId",
-                "WorkerId",
-                "AcquiredAt",
-                "ExpiresAt",
-                "LastHeartbeatAt",
-                "IsActive")
-            VALUES (
-                {lease.Id},
-                {lease.JobRunId},
-                {lease.WorkerId},
-                {lease.AcquiredAt},
-                {lease.ExpiresAt},
-                {lease.LastHeartbeatAt},
-                {lease.IsActive})
-            ON CONFLICT ("JobRunId")
-                WHERE "IsActive"
-                DO NOTHING
-            """, cancellationToken);
+        var ownsTransaction =
+            db.Database.CurrentTransaction is null;
+        if (ownsTransaction)
+        {
+            await db.Database.BeginTransactionAsync(
+                cancellationToken);
+        }
 
-        return affected == 1;
+        try
+        {
+            var connection = db.Database.GetDbConnection();
+            await using var command = connection.CreateCommand();
+            command.Transaction = db.Database
+                .CurrentTransaction!
+                .GetDbTransaction();
+            command.CommandText = """
+                WITH candidate AS (
+                    SELECT
+                        "Id",
+                        "FencingToken" + 1 AS next_token
+                    FROM job_runs
+                    WHERE "Id" = @job_run_id
+                    FOR UPDATE
+                ),
+                inserted AS (
+                    INSERT INTO leases (
+                        "Id",
+                        "JobRunId",
+                        "FencingToken",
+                        "WorkerId",
+                        "AcquiredAt",
+                        "ExpiresAt",
+                        "LastHeartbeatAt",
+                        "IsActive")
+                    SELECT
+                        @lease_id,
+                        candidate."Id",
+                        candidate.next_token,
+                        @worker_id,
+                        @acquired_at,
+                        @expires_at,
+                        @last_heartbeat_at,
+                        @is_active
+                    FROM candidate
+                    ON CONFLICT ("JobRunId")
+                        WHERE "IsActive"
+                        DO NOTHING
+                    RETURNING "FencingToken"
+                ),
+                advanced AS (
+                    UPDATE job_runs AS job
+                    SET
+                        "FencingToken" =
+                            inserted."FencingToken",
+                        "Version" = job."Version" + 1
+                    FROM inserted
+                    WHERE job."Id" = @job_run_id
+                    RETURNING inserted."FencingToken"
+                )
+                SELECT "FencingToken"
+                FROM advanced
+                """;
+            AddParameter(
+                command,
+                "job_run_id",
+                lease.JobRunId);
+            AddParameter(command, "lease_id", lease.Id);
+            AddParameter(
+                command,
+                "worker_id",
+                lease.WorkerId);
+            AddParameter(
+                command,
+                "acquired_at",
+                lease.AcquiredAt);
+            AddParameter(
+                command,
+                "expires_at",
+                lease.ExpiresAt);
+            AddParameter(
+                command,
+                "last_heartbeat_at",
+                lease.LastHeartbeatAt ?? (object)DBNull.Value);
+            AddParameter(
+                command,
+                "is_active",
+                lease.IsActive);
+
+            var result = await command.ExecuteScalarAsync(
+                cancellationToken);
+            var acquired =
+                result is not null &&
+                result is not DBNull;
+            if (acquired)
+            {
+                lease.FencingToken =
+                    Convert.ToInt64(result);
+            }
+
+            if (ownsTransaction)
+            {
+                if (acquired)
+                {
+                    await db.Database.CommitTransactionAsync(
+                        cancellationToken);
+                }
+                else
+                {
+                    await db.Database.RollbackTransactionAsync(
+                        cancellationToken);
+                }
+            }
+
+            return acquired;
+        }
+        catch
+        {
+            if (ownsTransaction &&
+                db.Database.CurrentTransaction is not null)
+            {
+                await db.Database.RollbackTransactionAsync(
+                    CancellationToken.None);
+            }
+
+            throw;
+        }
+    }
+
+    public async Task<bool> TryLockCurrentOwnerAsync(
+        JobExecutionFence fence,
+        DateTime now,
+        CancellationToken cancellationToken = default)
+    {
+        var transaction = db.Database.CurrentTransaction
+            ?? throw new InvalidOperationException(
+                "A transaction is required before locking a job fence");
+        var connection = db.Database.GetDbConnection();
+        await using var command = connection.CreateCommand();
+        command.Transaction =
+            transaction.GetDbTransaction();
+        command.CommandText = """
+            SELECT 1
+            FROM job_runs AS job
+            INNER JOIN leases AS lease
+                ON lease."JobRunId" = job."Id"
+            WHERE job."Id" = @job_run_id
+              AND job."FencingToken" = @fencing_token
+              AND lease."Id" = @lease_id
+              AND lease."FencingToken" = @fencing_token
+              AND lease."IsActive"
+              AND lease."ExpiresAt" > @now
+            FOR UPDATE OF job, lease
+            """;
+        AddParameter(
+            command,
+            "job_run_id",
+            fence.JobRunId);
+        AddParameter(
+            command,
+            "lease_id",
+            fence.LeaseId);
+        AddParameter(
+            command,
+            "fencing_token",
+            fence.FencingToken);
+        AddParameter(command, "now", now);
+
+        var result = await command.ExecuteScalarAsync(
+            cancellationToken);
+        return result is not null && result is not DBNull;
     }
 
     public async Task RenewAsync(Guid leaseId, DateTime newExpiresAt, CancellationToken cancellationToken = default)
@@ -257,6 +407,17 @@ public class LeaseRepository(ReliantDbContext db) : ILeaseRepository
             .IgnoreQueryFilters()
             .Where(x => x.IsActive && x.ExpiresAt < now)
             .ToListAsync(cancellationToken);
+    }
+
+    private static void AddParameter(
+        System.Data.Common.DbCommand command,
+        string name,
+        object value)
+    {
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = name;
+        parameter.Value = value;
+        command.Parameters.Add(parameter);
     }
 }
 
