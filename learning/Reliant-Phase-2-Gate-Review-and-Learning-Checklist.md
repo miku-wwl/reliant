@@ -455,15 +455,22 @@ Network
 
 业务事务提交后，即使 Publisher 在发送消息前崩溃，Outbox 消息也不会丢失。
 
+> 2026-08-03 已执行：**PASS（E2）**。
+>
+> Evidence：`docs/evidence/phase-2/exp1-publisher-crash.md`
+>
+> 使用真实 PostgreSQL 17 + LocalStack 3，在真实 SQS Send 前暂停并停止
+> Publisher Host；重启后消息恢复发布，最终业务结果只有一份。
+
 ### 步骤
 
-- [ ] 创建一笔业务数据
-- [ ] 确认业务数据与 Outbox 同事务提交
-- [ ] 在 Publisher Publish 前强制终止
-- [ ] 确认 Outbox 仍为 Pending
-- [ ] 重启 Publisher
-- [ ] 确认消息最终发布
-- [ ] 确认业务结果没有重复
+- [x] 创建一笔业务数据
+- [x] 确认业务数据与 Outbox 同事务提交
+- [x] 在 Publisher Publish 前强制终止
+- [x] 确认 Outbox 仍为 Pending
+- [x] 重启 Publisher
+- [x] 确认消息最终发布
+- [x] 确认业务结果没有重复
 
 ### PASS 条件
 
