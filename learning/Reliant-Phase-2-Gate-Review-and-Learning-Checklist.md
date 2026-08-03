@@ -748,6 +748,86 @@ Backlog 可观察
 
 ---
 
+## Experiment 11 — Stale Owner Fencing
+
+> 归属决定：放在 Phase 2。它直接补完 Experiment 5 的 Lease 所有权语义，
+> 验证的不是 Provider 功能，而是 Worker 接管后的并发正确性。
+
+### 假设
+
+Worker A 的 Lease 过期并由 Worker B 接管后，即使 Worker A 只是暂停后恢复，
+旧 Fencing Token 也会阻止它提交业务状态或覆盖新 Owner 的结果。
+
+### 步骤
+
+- [ ] JobRun 持久化单调递增的 Fencing Token
+- [ ] Worker A 获取 Job，并记录 Token=N
+- [ ] 在业务 Commit 前暂停 Worker A，而不是终止进程
+- [ ] 等待 Lease 过期并由 Scanner 释放旧 Owner
+- [ ] Worker B 获取同一 Job，并得到 Token=N+1
+- [ ] Worker B 完成业务处理并提交
+- [ ] 恢复 Worker A，让它尝试使用 Token=N 提交
+- [ ] 确认旧 Token 的条件更新影响行数为 0
+- [ ] 确认 Worker A 不会成功 ACK 或覆盖 Inbox / JobRun
+- [ ] 检查两个 JobAttempt、Fence 冲突日志和最终业务结果
+- [ ] 检查 Provider 侧仍由稳定幂等键阻止重复外部副作用
+
+### PASS 条件
+
+```text
+每次接管的 Fencing Token 严格递增
+过期 Owner 无法提交业务状态
+最终只有 Worker B 的结果有效
+Provider 与数据库业务副作用都只有一份
+旧 Owner 被拒绝的原因可审计
+```
+
+### 边界
+
+Fencing Token 只能拒绝过期 Owner 的后续提交，不能撤销已经发生的外部 Provider
+调用；因此本实验必须同时验证 Provider Idempotency，不能用 Fencing 代替外部幂等。
+
+---
+
+## Experiment 12 — SQS Visibility Heartbeat
+
+> 归属决定：放在 Phase 2。它与数据库 Lease Heartbeat 共同组成 Worker 长任务
+> 的存活协议，应该在进入 Provider 和生产容量实验前完成。
+
+### 假设
+
+健康 Worker 处理时间超过初始 SQS Visibility Timeout 时，Heartbeat 会同时续约
+数据库 Lease 和 SQS Message Visibility；Worker 崩溃或续约失败后，消息仍会在
+最后一次 Visibility 到期后重新投递。
+
+### 步骤
+
+- [ ] Queue Adapter 提供可见性续约抽象，SQS 实现调用 ChangeMessageVisibility
+- [ ] 将 Visibility Timeout 设置为 5 秒
+- [ ] 启动一个至少运行 20 秒的可控长任务
+- [ ] 将 Heartbeat 间隔设置为 1 秒
+- [ ] 检查数据库 Lease ExpiresAt 持续向后移动
+- [ ] 检查 SQS 消息在健康处理期间没有提前重新出现
+- [ ] 检查 ApproximateReceiveCount 在健康期间保持为 1
+- [ ] 启动 Worker B，确认它不会提前进入业务处理路径
+- [ ] 强制终止 Worker A 或注入 Visibility 续约失败
+- [ ] 等待最后一次 Visibility Timeout 到期
+- [ ] 确认 Worker B 收到相同 MessageId 并最终完成
+- [ ] 检查续约失败、ReceiptHandle 失效和限流日志
+- [ ] 检查消息没有因无意义 Receive 次数过早进入 DLQ
+
+### PASS 条件
+
+```text
+健康长任务不会提前 Redelivery
+数据库 Lease 与 SQS Visibility 都被续约
+Worker 崩溃后消息仍可最终 Redelivery
+任务最终完成且业务副作用不重复
+Heartbeat 失败可观察且不会静默丢失消息
+```
+
+---
+
 # 6. Evidence 目录建议
 
 ```text
@@ -770,7 +850,9 @@ evidence/
     ├── retry-exhaustion/
     ├── broker-unavailable/
     ├── graceful-shutdown/
-    └── backlog-recovery/
+    ├── backlog-recovery/
+    ├── stale-owner-fencing/
+    └── sqs-visibility-heartbeat/
 ```
 
 每个实验至少保存：
@@ -1216,6 +1298,8 @@ Name
 - [ ] Business Data 与 Outbox 同事务
 - [ ] Duplicate Message 不产生 Duplicate Business Effect
 - [ ] Worker Crash 后任务恢复
+- [ ] Lease 接管后旧 Owner 无法提交
+- [ ] 健康长任务会同步延长 SQS Visibility
 - [ ] Retry 有分类和上限
 - [ ] Poison Message 进入 DLQ
 - [ ] Dead-letter 可审计和 Replay

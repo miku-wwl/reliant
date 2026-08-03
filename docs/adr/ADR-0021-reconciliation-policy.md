@@ -93,6 +93,7 @@ ReconciliationRecord
 ## Consequences
 
 - Reconciliation Handler 是 ScheduledMaintenance 的一部分
-- ReconciliationRecord 表会增长，需要 Retention（Phase 8）
+- ReconciliationRecord 表会增长；Retention、容量指标和清理告警由
+  Phase 3 Experiment 15 验证
 - Provider QueryStatus 接口必须可靠（不能也超时）
 - Circuit Breaker 不阻断 Reconciliation（即使 Provider 故障，也要继续查）

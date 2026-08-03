@@ -1497,6 +1497,58 @@ Queue 积压可观察
 
 ---
 
+## Experiment 15 — Operational History Retention and Capacity Guardrails
+
+> 归属决定：作为 Phase 3 最后一个 Experiment。它不只是执行 DELETE，而是把
+> Retention Policy、容量指标、批量清理和告警一起验证，作为进入正式生产准备
+> 前的数据生命周期 Gate。
+
+### 假设
+
+JobRun、JobAttempt、Lease、Inbox、Outbox 和 Reconciliation 等运行历史持续增长
+时，系统能够按照明确策略清理或归档已终结数据，同时保留活跃任务、未解决异常、
+业务记录和必须保留的审计证据。
+
+### 步骤
+
+- [ ] 为每类表定义 Owner、保留周期、归档方式和删除依据
+- [ ] 明确 Terminal、Active、Pending、Unknown、ManualRequired 的保留规则
+- [ ] 明确 AuditEvent / StateTransition 是否只归档而不直接删除
+- [ ] 准备超过 Retention Cutoff 的终结历史数据
+- [ ] 同时准备未过期和仍在处理中的控制组数据
+- [ ] 使用小批次、可重入的 Maintenance Cleanup 执行清理
+- [ ] 验证 JobAttempt、Lease、JobRun 等外键删除顺序
+- [ ] 并发运行两个 Cleanup Scanner，确认不会重复处理或长时间锁表
+- [ ] 中途终止 Cleanup，再次启动并确认能够继续
+- [ ] 检查 Cleanup 扫描数、删除数、跳过数、失败数和耗时指标
+- [ ] 检查表大小、最老可清理记录年龄和预计清空时间
+- [ ] 模拟 Cleanup 持续失败或表容量超过阈值
+- [ ] 确认容量告警和 Cleanup Failure 告警触发
+- [ ] 检查活跃 Job、未解决记录、业务数据和审计证据没有被误删
+
+### PASS 条件
+
+```text
+只有符合策略的终结历史被清理或归档
+Active / Pending / Unknown / ManualRequired 数据不被误删
+Cleanup 有批次上限、可重入、可中断恢复
+并发 Cleanup 不产生重复删除或长事务
+容量、清理进度和失败都有指标
+超过容量或清理失败会触发告警
+清理后业务正确性和审计要求仍然成立
+```
+
+### 必须产出的 Policy Matrix
+
+| 数据类型 | 默认动作 | 必须保护的状态 |
+|---|---|---|
+| Outbox / Inbox | 终结并超过 Cutoff 后清理或归档 | Pending、Processing、未确认 |
+| JobRun / JobAttempt / Lease | 按 Job 终态成组清理 | Running、Pending、Active Lease |
+| ProcessingAttempt / Reconciliation | 归档后按策略清理 | Unknown、Pending、ManualRequired |
+| AuditEvent / StateTransition | 默认保留或归档 | 合规和事故调查要求覆盖的数据 |
+
+---
+
 # 6. Evidence 目录建议
 
 ```text
@@ -1531,7 +1583,8 @@ docs/learning/phase-3/
 ├── experiment-11-circuit-open/
 ├── experiment-12-terminal-conflict/
 ├── experiment-13-retry-exhaustion/
-└── experiment-14-backlog-recovery/
+├── experiment-14-backlog-recovery/
+└── experiment-15-retention-capacity/
 ```
 
 每个实验至少保存：
@@ -2285,6 +2338,8 @@ Name
 - [ ] Circuit Open 不 ACK
 - [ ] Crash 后最终恢复
 - [ ] ProviderOperationCount 始终为 1
+- [ ] Retention 不删除活跃或未解决数据
+- [ ] Cleanup 容量、进度和失败可观察并可告警
 
 ## Owner Knowledge
 

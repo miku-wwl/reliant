@@ -60,7 +60,8 @@ AuditEvent
 
 ## Consequences
 
-- AuditEvent 表会增长，但 R1 不需要清理（Phase 8 加 Retention）
+- AuditEvent 表会增长；由 Phase 3 Experiment 15 定义 Retention /
+  Archival Policy，默认保留或归档审计证据
 - 审计写入增加事务负担，但这是必要的代价
 - 审计记录不可修改是安全要求，R1 通过应用层保证
 - 审计和业务操作同事务，如果事务回滚审计也回滚（这是正确的：没发生的操作不需要审计）

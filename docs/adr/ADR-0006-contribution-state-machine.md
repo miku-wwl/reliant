@@ -76,6 +76,7 @@ StateTransition
 ## Consequences
 
 - 状态机逻辑在 Domain 层，不依赖 EF Core
-- StateTransition 表会增长，但 R1 不需要清理（Phase 8 加 Retention）
+- StateTransition 表会增长；由 Phase 3 Experiment 15 定义 Retention /
+  Archival Policy，未满足审计要求前不直接删除
 - CHECK 约束是最后防线，不是第一道（第一道是 Domain 逻辑）
 - 并发冲突时 Worker 需要处理 `DbUpdateConcurrencyException`，不能盲目重试
