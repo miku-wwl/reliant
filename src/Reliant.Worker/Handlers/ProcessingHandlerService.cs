@@ -23,7 +23,10 @@ public class ProcessingHandlerService(
     ILogger<ProcessingHandlerService> logger) : BackgroundService
 {
     private readonly string QueueName = configuration["Queue:QueueName"] ?? "reliant-processing";
-    private const int Concurrency = 10;
+    private readonly int ProcessingConcurrency = Math.Max(
+        1,
+        configuration.GetValue<int?>(
+            "Worker:ProcessingConcurrency") ?? 10);
     private readonly int VisibilityTimeoutSeconds = configuration.GetValue<int?>("Worker:VisibilityTimeoutSeconds") ?? 35;
     private readonly int LeaseSeconds = Math.Max(
         1,
@@ -50,13 +53,24 @@ public class ProcessingHandlerService(
     {
         logger.LogInformation("Processing Handler started");
 
-        using var semaphore = new SemaphoreSlim(Concurrency, Concurrency);
+        using var semaphore = new SemaphoreSlim(
+            ProcessingConcurrency,
+            ProcessingConcurrency);
+        var inFlightTasks = new HashSet<Task>();
+        var inFlightGate = new object();
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            await semaphore.WaitAsync(stoppingToken);
+            try
+            {
+                await semaphore.WaitAsync(stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
 
-            _ = Task.Run(async () =>
+            var processingTask = Task.Run(async () =>
             {
                 try
                 {
@@ -567,6 +581,22 @@ public class ProcessingHandlerService(
 
                         logger.LogInformation("Message {MessageId} processed, attempt status: {Status}", message.MessageId, submitResult.Status);
                     }
+                    catch (OperationCanceledException)
+                        when (stoppingToken.IsCancellationRequested)
+                    {
+                        const string shutdownReason =
+                            "Worker graceful shutdown interrupted processing";
+                        logger.LogInformation(
+                            "Graceful shutdown interrupted message {MessageId}; marking attempt Abandoned, returning job to Pending, releasing lease, and leaving message unacknowledged",
+                            message.MessageId);
+                        await RecordInterruptedJobAsync(
+                            organizationId,
+                            jobRunId,
+                            jobAttempt.Id,
+                            JobAttemptStatus.Abandoned,
+                            shutdownReason,
+                            markJobPending: true);
+                    }
                     catch (DbUpdateConcurrencyException ex)
                     {
                         // Another concurrent delivery committed the same
@@ -642,9 +672,38 @@ public class ProcessingHandlerService(
                 {
                     semaphore.Release();
                 }
-            }, stoppingToken);
+            }, CancellationToken.None);
+
+            lock (inFlightGate)
+            {
+                inFlightTasks.Add(processingTask);
+            }
+            _ = processingTask.ContinueWith(
+                completedTask =>
+                {
+                    lock (inFlightGate)
+                    {
+                        inFlightTasks.Remove(completedTask);
+                    }
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
 
             try { await Task.Delay(100, stoppingToken); } catch (OperationCanceledException) { }
+        }
+
+        Task[] tasksToDrain;
+        lock (inFlightGate)
+        {
+            tasksToDrain = [.. inFlightTasks];
+        }
+        if (tasksToDrain.Length > 0)
+        {
+            logger.LogInformation(
+                "Processing Handler draining {TaskCount} in-flight processing task(s)",
+                tasksToDrain.Length);
+            await Task.WhenAll(tasksToDrain);
         }
 
         logger.LogInformation("Processing Handler stopped");

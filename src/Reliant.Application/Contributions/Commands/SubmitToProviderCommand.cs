@@ -155,6 +155,22 @@ public class SubmitToProviderHandler(
             await unitOfWork.SaveChangesAsync(ct);
             return new ProviderSubmissionResult(AttemptStatus.Unknown, null, result.ErrorCategory, result.ErrorMessage, ProviderSubmissionDisposition.Unknown);
         }
+        catch (OperationCanceledException)
+            when (ct.IsCancellationRequested)
+        {
+            // The provider outcome cannot be assumed when host shutdown
+            // cancels an in-flight submission. Persist the uncertainty with a
+            // non-cancelled token, then let the worker release its Job lease
+            // and leave the queue message unacknowledged for recovery.
+            attempt.Status = AttemptStatus.Unknown;
+            attempt.ErrorCategory = ErrorCategory.UnknownOutcome;
+            attempt.ErrorMessage =
+                "Provider submission interrupted by worker shutdown";
+            attempt.CompletedAt = DateTime.UtcNow;
+            await unitOfWork.SaveChangesAsync(
+                CancellationToken.None);
+            throw;
+        }
         catch (Exception ex)
         {
             attempt.Status = AttemptStatus.Unknown;

@@ -19,6 +19,7 @@ public sealed class SandboxProviderOperation
 public class SandboxProvider : IProvider, ISandboxProviderControl
 {
     private readonly string _secret;
+    private readonly int _submitDelayMs;
     private volatile string _mode;
     private readonly ConcurrentDictionary<string, SandboxProviderOperation> _byKey = new();
     private readonly ConcurrentDictionary<string, SandboxProviderOperation> _byRef = new();
@@ -27,6 +28,13 @@ public class SandboxProvider : IProvider, ISandboxProviderControl
     {
         _secret = configuration["Provider:Secret"] ?? "sandbox-secret-key";
         _mode = configuration["Provider:Mode"] ?? "Success";
+        _submitDelayMs = Math.Max(
+            0,
+            int.TryParse(
+                configuration["Provider:SubmitDelayMs"],
+                out var parsedSubmitDelayMs)
+                ? parsedSubmitDelayMs
+                : 0);
     }
 
     public void SetMode(string mode)
@@ -34,19 +42,26 @@ public class SandboxProvider : IProvider, ISandboxProviderControl
         _mode = mode;
     }
 
-    public Task<ProviderResult> SubmitAsync(ProviderRequest request, CancellationToken ct = default)
+    public async Task<ProviderResult> SubmitAsync(
+        ProviderRequest request,
+        CancellationToken ct = default)
     {
+        if (_submitDelayMs > 0)
+        {
+            await Task.Delay(_submitDelayMs, ct);
+        }
+
         // Fast path: existing operation -> idempotent replay.
         if (_byKey.TryGetValue(request.IdempotencyKey, out var existing))
         {
-            return Task.FromResult(ReplayResult(request, existing));
+            return ReplayResult(request, existing);
         }
 
         // Modes where the provider does NOT process the request: no operation is
         // ever created, so the request can be safely retried later.
         if (NoProcessModes.Contains(_mode))
         {
-            return Task.FromResult(NoProcessResult(request));
+            return NoProcessResult(request);
         }
 
         // Atomic create-or-get: exactly one operation object is created per key,
@@ -59,11 +74,11 @@ public class SandboxProvider : IProvider, ISandboxProviderControl
         if (created)
         {
             _byRef[operation.ProviderReference] = operation;
-            return Task.FromResult(FirstCallResult(request, operation));
+            return FirstCallResult(request, operation);
         }
 
         // Lost the race - replay the operation that the winner created.
-        return Task.FromResult(ReplayResult(request, operation));
+        return ReplayResult(request, operation);
     }
 
     private static readonly HashSet<string> NoProcessModes = new(StringComparer.Ordinal)

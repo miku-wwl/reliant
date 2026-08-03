@@ -758,12 +758,12 @@ Sent 后停止。若 Broker 永久不恢复，transient Pending 会继续按 cap
 
 ### 步骤
 
-- [ ] 启动长任务
-- [ ] 发送 SIGTERM / Ctrl+C
-- [ ] 检查是否停止 Receive 新消息
-- [ ] 检查当前任务如何结束
-- [ ] 检查 Lease、ACK、Checkpoint
-- [ ] 重启后检查任务状态
+- [x] 启动长任务
+- [x] 发送 SIGTERM / Ctrl+C
+- [x] 检查是否停止 Receive 新消息
+- [x] 检查当前任务如何结束
+- [x] 检查 Lease、ACK、Checkpoint
+- [x] 重启后检查任务状态
 
 ### PASS 条件
 
@@ -772,6 +772,25 @@ Sent 后停止。若 Broker 永久不恢复，transient Pending 会继续按 cap
 当前任务行为明确
 无任务静默丢失
 ```
+
+### 执行结果
+
+```text
+PASS（E2）
+信号：真实 Docker SIGTERM
+停止领取：第二条任务保持 Contribution=Created、JobRun=Pending、Attempt=0
+当前任务：JobRun=Pending、JobAttempt=Abandoned、ProviderAttempt=Unknown
+清理：Lease inactive、Inbox=0、消息未 ACK
+退出：Worker A ExitCode=0，SIGTERM 到退出约 716ms
+重启前 Queue：Visible=1、InFlight=1、可恢复消息总数=2
+Worker B：两条 Contribution 最终 Succeeded、Inbox=2、Queue Depth=0
+Checkpoint：当前工作流不使用 Checkpoint，实验确认 rows=0，不声明 resume 能力
+Phase 2 Exp1–Exp9：11/11 通过
+最终全量：157/157 通过
+```
+
+聚合实验报告：
+[`learning/phase-2/exp9-graceful-shutdown.md`](phase-2/exp9-graceful-shutdown.md)
 
 ---
 
