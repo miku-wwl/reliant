@@ -552,15 +552,24 @@ OutboxMessage 存在
 
 Worker 收到消息后非正常崩溃，消息会重新出现并由其他 Worker 处理。
 
+> 2026-08-03 已执行：**PASS（E2）**。
+>
+> 学习实验报告：`learning/phase-2/exp4-worker-crash.md`
+>
+> Worker A 是真实 Docker 容器；它 Receive 后、ACK 前被 `docker kill`，
+> ExitCode 为 137。同一 MessageId 在 Visibility Timeout 后以
+> `ApproximateReceiveCount=2` 重现，独立 Worker B 最终处理并 ACK，业务数据
+> 与副作用均只有一份。
+
 ### 步骤
 
-- [ ] Worker Receive 消息
-- [ ] 在 ACK 前 `docker kill`
-- [ ] 等待 Visibility Timeout
-- [ ] 启动另一个 Worker
-- [ ] 确认消息 Redelivery
-- [ ] 确认任务最终完成
-- [ ] 确认业务副作用没有重复
+- [x] Worker Receive 消息
+- [x] 在 ACK 前 `docker kill`
+- [x] 等待 Visibility Timeout
+- [x] 启动另一个 Worker
+- [x] 确认消息 Redelivery
+- [x] 确认任务最终完成
+- [x] 确认业务副作用没有重复
 
 ### PASS 条件
 
