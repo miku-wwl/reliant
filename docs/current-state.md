@@ -1,6 +1,6 @@
 # Reliant - Current State
 
-> 最后更新：Phase 2 Experiment 9（Graceful Shutdown）—
+> 最后更新：Phase 2 Experiment 10（Backlog Growth and Recovery）—
 > Local Verified；Phase 3.1 CI baseline 仍为 Completed
 
 ## Phase 3.1 状态
@@ -16,10 +16,10 @@ Evidence pack: docs/evidence/phase-3.1/
 CI evidence: docs/evidence/phase-3.1/ci-run.md
 ```
 
-当前工作树在 Phase 3.1 基线上补充了 Phase 2 Exp1–Exp9，最新本地全量结果：
+当前工作树在 Phase 3.1 基线上补充了 Phase 2 Exp1–Exp10，最新本地全量结果：
 
 ```text
-157 passed, 0 failed, 0 skipped
+158 passed, 0 failed, 0 skipped
 ```
 
 新增代码 push 后需要重新取得 GitHub Actions CI evidence；原 146-test CI
@@ -51,6 +51,7 @@ CI evidence: docs/evidence/phase-3.1/ci-run.md
 | Retry Exhaustion / Backoff / Jitter | Implemented | Verified | learning/phase-2/exp7-retry-exhaustion.md |
 | Broker Outage / Outbox Recovery | Implemented | Verified | learning/phase-2/exp8-broker-temporarily-unavailable.md |
 | Processing Worker Graceful Shutdown | Implemented | Verified | learning/phase-2/exp9-graceful-shutdown.md |
+| Backlog Growth / Scale-out Recovery | Implemented | Verified | learning/phase-2/exp10-backlog-growth-and-recovery.md |
 | Optimistic Concurrency | Implemented | Verified | Integration Test: OptimisticConcurrency_ShouldPreventLostUpdate |
 | OpenTelemetry | Not Started | Not Started | - |
 | Metrics / Logs / Dashboard | Not Started | Not Started | - |
@@ -75,9 +76,9 @@ CI evidence: docs/evidence/phase-3.1/ci-run.md
 
 - Unit Tests: 65
 - Architecture Tests: 5
-- PostgreSQL Integration Tests: 63
-- LocalStack Integration Tests: 24
+- PostgreSQL Integration Tests: 64
+- LocalStack Integration Tests: 25
 - HTTP API Integration Tests: 9
-- WorkerHost End-to-End Tests: 18
-- Integration Tests Total: 87
-- Total Tests: 157
+- WorkerHost End-to-End Tests: 19
+- Integration Tests Total: 88
+- Total Tests: 158

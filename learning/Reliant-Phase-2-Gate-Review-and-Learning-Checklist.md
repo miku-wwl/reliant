@@ -802,13 +802,13 @@ Phase 2 Exp1–Exp9：11/11 通过
 
 ### 步骤
 
-- [ ] 使用脚本快速发布大量消息
-- [ ] 限制 Worker 并发
-- [ ] 观察 Queue Depth
-- [ ] 观察 Oldest Message Age
-- [ ] 观察数据库和 Worker 负载
-- [ ] 恢复正常容量
-- [ ] 测量 Backlog 清空时间
+- [x] 使用脚本快速发布大量消息
+- [x] 限制 Worker 并发
+- [x] 观察 Queue Depth
+- [x] 观察 Oldest Message Age
+- [x] 观察数据库和 Worker 负载
+- [x] 恢复正常容量
+- [x] 测量 Backlog 清空时间
 
 ### PASS 条件
 
@@ -818,6 +818,28 @@ Backlog 可观察
 恢复后队列最终清空
 无大量失败或重复结果
 ```
+
+### 执行结果
+
+```text
+PASS（E2）
+生产：40 条消息，212ms，约 188.3 msg/s
+Peak：Queue Depth=40，Oldest Message Age=1499ms
+低容量：Concurrency=1，完成 4 条时 Depth=36
+负载：Running Job/Attempt/Lease 峰值均为 1，DB connections 峰值 2
+恢复：增加 Concurrency=8，3686ms 清空，Final Depth=0
+最终：Succeeded/Inbox/JobAttempt/ProcessingAttempt/Provider Effect 均为 40
+失败：DeadLetter=0、Duplicate Group=0
+Phase 2 Exp1–Exp10：12/12 通过
+最终全量：158/158 通过
+```
+
+聚合实验报告：
+[`learning/phase-2/exp10-backlog-growth-and-recovery.md`](phase-2/exp10-backlog-growth-and-recovery.md)
+
+本实验使用 LocalStack SQS `SentTimestamp` 做一次有侵入性的 Oldest Age 采样，
+不是生产监控实现。CloudWatch 指标、Dashboard、告警、自动扩缩和正式容量门槛
+仍属于 Phase 3 生产准备工作。
 
 ---
 
