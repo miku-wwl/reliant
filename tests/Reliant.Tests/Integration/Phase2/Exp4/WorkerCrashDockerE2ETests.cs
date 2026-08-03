@@ -474,7 +474,8 @@ public sealed class WorkerCrashDockerE2ETests(ITestOutputHelper output)
             var postgresForContainer = new NpgsqlConnectionStringBuilder(
                 fixture.PgConnectionString)
             {
-                Host = "host.docker.internal"
+                Host = "host.docker.internal",
+                GssEncryptionMode = GssEncryptionMode.Disable
             }.ConnectionString;
             var localStackUri = new Uri(fixture.SqsEndpoint);
             var queueEndpointForContainer =

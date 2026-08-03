@@ -31,7 +31,20 @@ public class ProcessingHandlerService(
     private readonly int HeartbeatIntervalMs = Math.Max(
         100,
         configuration.GetValue<int?>("Worker:HeartbeatIntervalMs") ?? 10000);
+    private readonly int MaxReceiveCount = Math.Max(
+        1,
+        configuration.GetValue<int?>("Queue:MaxReceiveCount") ?? 5);
     private static readonly RetryPolicy RetryPolicy = new();
+
+    private sealed record MessageValidationResult(
+        ContributionProcessingMessage? Message,
+        Guid OrganizationId,
+        string? ErrorMessage)
+    {
+        public bool IsValid =>
+            Message is not null &&
+            ErrorMessage is null;
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -57,14 +70,19 @@ public class ProcessingHandlerService(
 
                     logger.LogInformation("Processing message {MessageId}", message.MessageId);
                     var jobRunId = ResolveJobRunId(message.MessageId);
-                    var msg = JsonSerializer.Deserialize<ContributionProcessingMessage>(
-                        message.Payload,
-                        new JsonSerializerOptions
-                        {
-                            PropertyNameCaseInsensitive = true
-                        })
-                        ?? throw new InvalidOperationException(
-                            "Invalid processing message contract");
+                    var validation = ValidateProcessingMessage(message);
+                    if (!validation.IsValid)
+                    {
+                        await HandlePoisonMessageAsync(
+                            message,
+                            validation.OrganizationId,
+                            validation.ErrorMessage ??
+                                "Invalid processing message contract",
+                            stoppingToken);
+                        return;
+                    }
+
+                    var msg = validation.Message!;
                     var contributionId = msg.ContributionId;
                     var organizationId = msg.OrganizationId;
 
@@ -660,6 +678,177 @@ public class ProcessingHandlerService(
 
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(messageId));
         return new Guid(hash.AsSpan(0, 16));
+    }
+
+    private static MessageValidationResult ValidateProcessingMessage(
+        IQueueMessage message)
+    {
+        ContributionProcessingMessage? parsed;
+        try
+        {
+            parsed = JsonSerializer.Deserialize<
+                ContributionProcessingMessage>(
+                message.Payload,
+                new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+        }
+        catch (JsonException ex)
+        {
+            return new MessageValidationResult(
+                null,
+                Guid.Empty,
+                $"Payload is not valid JSON for the processing contract: {ex.Message}");
+        }
+
+        if (parsed is null)
+        {
+            return new MessageValidationResult(
+                null,
+                Guid.Empty,
+                "Payload JSON resolved to a null processing contract");
+        }
+
+        if (message.MessageType is not
+            ("ContributionCreated" or
+            "ContributionRetryRequested"))
+        {
+            return new MessageValidationResult(
+                parsed,
+                parsed.OrganizationId,
+                $"Unsupported processing message type {message.MessageType}");
+        }
+
+        if (parsed.Version != 1)
+        {
+            return new MessageValidationResult(
+                parsed,
+                parsed.OrganizationId,
+                $"Unsupported processing message version {parsed.Version}; expected version 1");
+        }
+
+        if (parsed.ContributionId == Guid.Empty)
+        {
+            return new MessageValidationResult(
+                parsed,
+                parsed.OrganizationId,
+                "Processing message ContributionId is required");
+        }
+
+        if (parsed.OrganizationId == Guid.Empty)
+        {
+            return new MessageValidationResult(
+                parsed,
+                Guid.Empty,
+                "Processing message OrganizationId is required");
+        }
+
+        if (string.IsNullOrWhiteSpace(parsed.Trigger))
+        {
+            return new MessageValidationResult(
+                parsed,
+                parsed.OrganizationId,
+                "Processing message Trigger is required");
+        }
+
+        if (string.IsNullOrWhiteSpace(parsed.CorrelationId))
+        {
+            return new MessageValidationResult(
+                parsed,
+                parsed.OrganizationId,
+                "Processing message CorrelationId is required");
+        }
+
+        return new MessageValidationResult(
+            parsed,
+            parsed.OrganizationId,
+            null);
+    }
+
+    private async Task HandlePoisonMessageAsync(
+        IQueueMessage message,
+        Guid organizationId,
+        string errorMessage,
+        CancellationToken cancellationToken)
+    {
+        var receiveCount = Math.Max(
+            1,
+            message.ApproximateReceiveCount);
+        logger.LogWarning(
+            "Poison message {MessageId} rejected on receive {ReceiveCount}/{MaxReceiveCount}: {ErrorMessage}",
+            message.MessageId,
+            receiveCount,
+            MaxReceiveCount,
+            errorMessage);
+
+        if (receiveCount < MaxReceiveCount)
+        {
+            return;
+        }
+
+        TenantFilterAccessor.SetOrganizationId(organizationId);
+        try
+        {
+            using var scope = serviceProvider.CreateScope();
+            var dbContext = scope.ServiceProvider
+                .GetRequiredService<ReliantDbContext>();
+            var deadLetterRepo = scope.ServiceProvider
+                .GetRequiredService<IDeadLetterRepository>();
+            var jobRunRepo = scope.ServiceProvider
+                .GetRequiredService<IJobRunRepository>();
+            var unitOfWork = scope.ServiceProvider
+                .GetRequiredService<IUnitOfWork>();
+
+            var existing = await dbContext.DeadLetterRecords
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(
+                    x =>
+                        x.OriginalMessageId == message.MessageId &&
+                        x.MessageType == message.MessageType,
+                    cancellationToken);
+
+            if (existing is null)
+            {
+                await deadLetterRepo.AddAsync(
+                    new DeadLetterRecord
+                    {
+                        Id = Guid.NewGuid(),
+                        OrganizationId = organizationId,
+                        OriginalMessageId = message.MessageId,
+                        MessageType = message.MessageType,
+                        Payload = message.Payload,
+                        ErrorCategory =
+                            ErrorCategory.ValidationFailure,
+                        ErrorMessage = errorMessage,
+                        AttemptCount = receiveCount,
+                        DeadLetteredAt = DateTime.UtcNow,
+                        Status = DeadLetterStatus.Pending
+                    },
+                    cancellationToken);
+            }
+            else if (receiveCount > existing.AttemptCount)
+            {
+                existing.AttemptCount = receiveCount;
+                existing.ErrorMessage = errorMessage;
+            }
+
+            var jobRun = await jobRunRepo.GetByIdAsync(
+                ResolveJobRunId(message.MessageId),
+                cancellationToken);
+            jobRun?.MarkDeadLettered(DateTime.UtcNow);
+
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            logger.LogError(
+                "Poison message {MessageId} recorded for SQS DLQ after receive {ReceiveCount}/{MaxReceiveCount}",
+                message.MessageId,
+                receiveCount,
+                MaxReceiveCount);
+        }
+        finally
+        {
+            TenantFilterAccessor.Clear();
+        }
     }
 
     private async Task HeartbeatLoop(

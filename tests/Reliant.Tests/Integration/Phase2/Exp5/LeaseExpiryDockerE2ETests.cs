@@ -162,7 +162,8 @@ public sealed class LeaseExpiryDockerE2ETests(ITestOutputHelper output)
         string queueEndpoint,
         string queueName,
         int visibilityTimeoutSeconds,
-        int leaseSeconds)
+        int leaseSeconds,
+        int maxReceiveCount)
         => new ContainerBuilder()
             .WithImage(WorkerRuntimeImage)
             .WithName(containerName)
@@ -181,6 +182,9 @@ public sealed class LeaseExpiryDockerE2ETests(ITestOutputHelper output)
             .WithEnvironment("Queue__Endpoint", queueEndpoint)
             .WithEnvironment("Queue__Region", "us-west-1")
             .WithEnvironment("Queue__QueueName", queueName)
+            .WithEnvironment(
+                "Queue__MaxReceiveCount",
+                maxReceiveCount.ToString(CultureInfo.InvariantCulture))
             .WithEnvironment(
                 "Worker__VisibilityTimeoutSeconds",
                 visibilityTimeoutSeconds.ToString(
@@ -283,12 +287,15 @@ public sealed class LeaseExpiryDockerE2ETests(ITestOutputHelper output)
     }
 
     private static IConfiguration CreateQueueConfiguration(
-        string queueEndpoint)
+        string queueEndpoint,
+        int maxReceiveCount)
         => new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Queue:Endpoint"] = queueEndpoint,
-                ["Queue:Region"] = "us-west-1"
+                ["Queue:Region"] = "us-west-1",
+                ["Queue:MaxReceiveCount"] =
+                    maxReceiveCount.ToString(CultureInfo.InvariantCulture)
             })
             .Build();
 
@@ -470,6 +477,7 @@ public sealed class LeaseExpiryDockerE2ETests(ITestOutputHelper output)
             $"reliant-phase2-exp5-{runId}");
         const int visibilityTimeoutSeconds = 2;
         const int leaseSeconds = 10;
+        const int maxReceiveCount = 20;
 
         await using var fixture = new WorkerHostFixture();
         IContainer? workerA = null;
@@ -485,7 +493,9 @@ public sealed class LeaseExpiryDockerE2ETests(ITestOutputHelper output)
             await fixture.InitializeAsync();
 
             var queueAdapter = new SqsQueueAdapter(
-                CreateQueueConfiguration(fixture.SqsEndpoint));
+                CreateQueueConfiguration(
+                    fixture.SqsEndpoint,
+                    maxReceiveCount));
             var queueUrl = await queueAdapter.GetOrCreateQueueAsync(
                 fixture.QueueName);
 
@@ -581,7 +591,8 @@ public sealed class LeaseExpiryDockerE2ETests(ITestOutputHelper output)
                 new NpgsqlConnectionStringBuilder(
                     fixture.PgConnectionString)
                 {
-                    Host = "host.docker.internal"
+                    Host = "host.docker.internal",
+                    GssEncryptionMode = GssEncryptionMode.Disable
                 }.ConnectionString;
             var localStackUri = new Uri(fixture.SqsEndpoint);
             var queueEndpointForContainer =
@@ -595,7 +606,8 @@ public sealed class LeaseExpiryDockerE2ETests(ITestOutputHelper output)
                 queueEndpointForContainer,
                 fixture.QueueName,
                 visibilityTimeoutSeconds,
-                leaseSeconds);
+                leaseSeconds,
+                maxReceiveCount);
             await workerA.StartAsync();
 
             Lease? workerALease = null;
@@ -728,7 +740,8 @@ public sealed class LeaseExpiryDockerE2ETests(ITestOutputHelper output)
                 queueEndpointForContainer,
                 fixture.QueueName,
                 visibilityTimeoutSeconds,
-                leaseSeconds);
+                leaseSeconds,
+                maxReceiveCount);
             await workerB.StartAsync();
 
             // Queue visibility expires before the 10-second Lease. Worker B

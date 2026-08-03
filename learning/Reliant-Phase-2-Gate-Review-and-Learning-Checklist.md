@@ -389,14 +389,14 @@ Payload 无法反序列化
 
 ### 必须在代码中找到
 
-- [ ] Retry Exhaustion 后是否进入 DLQ
-- [ ] 原始 Payload 是否保存
-- [ ] MessageId 是否保存
+- [x] Poison 接收达到上限后是否进入 DLQ（Exp6）
+- [x] 原始 Payload 是否保存（Exp6）
+- [x] MessageId 是否保存（Exp6）
 - [ ] CorrelationId / CausationId 是否保存
-- [ ] 最后一次错误是否保存
-- [ ] Attempt Count 是否保存
-- [ ] Dead-letter 是否可查询
-- [ ] Dead-letter 是否可审计
+- [x] 最后一次错误是否保存（Exp6）
+- [x] Attempt Count 是否保存（Exp6）
+- [x] Dead-letter 是否可通过数据库查询（Exp6）
+- [x] Dead-letter 是否可审计（Exp6）
 - [ ] Replay 是否要求明确操作
 - [ ] Replay 是否可能绕过 Inbox
 - [ ] Replay 是否生成新 MessageId
@@ -626,12 +626,12 @@ Job 不永久卡在 Processing
 
 ### 步骤
 
-- [ ] 投递一个无法反序列化或违反版本约束的消息
-- [ ] 同时投递正常消息
-- [ ] 检查 Retry 次数
-- [ ] 检查坏消息进入 DLQ
-- [ ] 检查正常消息正常完成
-- [ ] 检查 Dead-letter 信息是否完整
+- [x] 投递一个无法反序列化或违反版本约束的消息
+- [x] 同时投递正常消息
+- [x] 检查 Retry 次数
+- [x] 检查坏消息进入 DLQ
+- [x] 检查正常消息正常完成
+- [x] 检查 Dead-letter 信息是否完整
 
 ### PASS 条件
 
@@ -640,6 +640,21 @@ Poison Message 进入 DLQ
 正常消息不受阻塞
 错误可审计
 ```
+
+### 执行结果
+
+```text
+PASS（E2）
+Malformed JSON：3 次接收后进入原生 SQS DLQ
+Unsupported Version 99：3 次接收后进入原生 SQS DLQ
+正常消息：约 913ms 完成，Inbox / ProcessingAttempt / ProviderReference 各 1
+DeadLetterRecord：2，原始 Payload、MessageId、错误、次数和时间完整
+主队列：最终为空
+最终全量：154/154 通过
+```
+
+聚合实验报告：
+[`learning/phase-2/exp6-poison-message.md`](phase-2/exp6-poison-message.md)
 
 ---
 
@@ -1115,7 +1130,7 @@ Lease 过期
 - [ ] Duplicate Delivery 不产生重复业务结果
 - [ ] Worker Crash 后任务可恢复
 - [x] Lease Expiry 后其他 Worker 可接管
-- [ ] Poison Message 不阻塞正常队列
+- [x] Poison Message 不阻塞正常队列
 - [ ] Retry 有分类、上限、Backoff 和 Jitter
 - [ ] Retry Exhaustion 有明确终态
 - [ ] Dead-letter 可审计和受控 Replay
@@ -1144,7 +1159,7 @@ Lease 过期
 - [ ] 能解释 Lease / Heartbeat / Checkpoint
 - [ ] 能解释 Retry 分类
 - [ ] 能解释 Backoff / Jitter
-- [ ] 能解释 Poison Message / DLQ
+- [x] 能解释 Poison Message / DLQ
 - [ ] 能解释 Worker Crash 的故障窗口
 - [ ] 能指出代码中的事务提交点
 - [ ] 能指出代码中的 ACK 点
@@ -1301,7 +1316,7 @@ Name
 - [ ] Lease 接管后旧 Owner 无法提交
 - [ ] 健康长任务会同步延长 SQS Visibility
 - [ ] Retry 有分类和上限
-- [ ] Poison Message 进入 DLQ
+- [x] Poison Message 进入 DLQ
 - [ ] Dead-letter 可审计和 Replay
 
 ## Known Limitations

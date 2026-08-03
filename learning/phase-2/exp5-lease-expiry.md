@@ -38,13 +38,14 @@ Job 不永久卡在 Processing：是
 - Worker 镜像：`mcr.microsoft.com/dotnet/runtime:10.0`
 - 依赖容器：`postgres:17`、`localstack/localstack:3`
 - SQS Visibility Timeout：2 秒
+- SQS maxReceiveCount：20（覆盖 10 秒 Lease 内的合法 defer）
 - Lease：10 秒
 - Heartbeat：500 毫秒
 - 专项测试：3/3 通过
 - Lab 3 回归：1/1 通过
 - Lab 4 回归：1/1 通过
 - 相关消息 / Crash / Circuit / Retry 回归：13/13 通过
-- 全量测试：153/153 通过
+- 全量测试：154/154 通过
 
 ## 我的假设
 
@@ -341,6 +342,10 @@ kill 前数据库：
 
 SQS Visibility Timeout 是 2 秒，短于 10 秒 Lease，所以 Worker B 会在 Lease
 到期前看到重投消息。
+
+Exp6 接通原生 SQS DLQ 后，本实验把 `maxReceiveCount` 显式设为 20。该阈值必须
+覆盖 Lease 有效期间的合法 defer；若仍使用压缩实验参数下的 5，消息可能在 Lease
+到期前被 Broker 误送入 DLQ。
 
 实际结果：
 

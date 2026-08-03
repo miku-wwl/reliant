@@ -114,7 +114,8 @@ public sealed class WorkerHostFixture : IAsyncLifetime
         IInterceptor? dbInterceptor = null,
         ILeaseRepository? leaseRepositoryOverride = null,
         IJobRunRepository? jobRunRepositoryOverride = null,
-        IJobAttemptRepository? jobAttemptRepositoryOverride = null)
+        IJobAttemptRepository? jobAttemptRepositoryOverride = null,
+        int maxReceiveCount = 5)
     {
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(
             new HostApplicationBuilderSettings { Args = Array.Empty<string>() });
@@ -125,6 +126,7 @@ public sealed class WorkerHostFixture : IAsyncLifetime
             ["Queue:Endpoint"] = _localStack.GetConnectionString(),
             ["Queue:Region"] = "us-west-1",
             ["Queue:QueueName"] = QueueName,
+            ["Queue:MaxReceiveCount"] = maxReceiveCount.ToString(),
             ["Provider:Mode"] = providerMode,
             ["Provider:Secret"] = "sandbox-secret-key",
             ["Worker:Outbox:IntervalMs"] = "300",

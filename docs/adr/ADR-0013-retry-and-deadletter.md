@@ -65,6 +65,11 @@ Operator 判断：
   - 需要修复代码 -> 修复后 replay
 ```
 
+Broker 的 `maxReceiveCount` 是消息接收次数上限，不等同于业务 Retry 次数。它必须
+覆盖正常处理、合法 Lease 等待和预期 transient retry 所产生的 redelivery。
+Phase 2 Exp6 为了快速验证 Poison 使用 3；生产默认是 5，但每个工作负载必须按
+Visibility Timeout、Lease、Heartbeat 和 Retry Budget 单独校准。
+
 ### 5. DeadLetterRecord 数据模型
 
 ```
@@ -95,3 +100,6 @@ DeadLetterRecord
 - Retry Budget 防止雪崩，但也意味着大面积故障时部分消息会直接进 DLQ
 - Dead-letter 需要人工介入，不能自动 replay
 - SQS DLQ 在 Phase 0 已验证可用（maxReceiveCount 行为正确）
+- Phase 2 Exp6 已用 LocalStack E2 验证 Processing Queue 的原生 RedrivePolicy、
+  Poison Contract Gate、Payload 保留和数据库审计；Retry Budget、Transient
+  Retry Exhaustion、CLI 查询及受控 Replay 仍未完成，所以本 ADR 保持 Proposed。
