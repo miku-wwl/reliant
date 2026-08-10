@@ -11,18 +11,113 @@ using Reliant.Infrastructure.Provider;
 using Reliant.Infrastructure.Queue;
 using Reliant.Tests.Integration.Fixtures;
 using Reliant.Tests.TestHelpers;
+using System.Collections.Concurrent;
 using System.Text.Json;
+using Xunit.Abstractions;
 
-namespace Reliant.Tests.Integration;
+namespace Reliant.Tests.Integration.Phase3.Exp4;
 
 [Trait("Category", "Integration")]
+[Trait("Dependency", "PostgreSQL")]
 [Trait("Dependency", "LocalStack")]
 [Trait("Dependency", "WorkerHost")]
-public class CrashBeforeAckE2ETests
+public sealed class SameSqsMessageRedeliveryE2ETests(
+    ITestOutputHelper output)
 {
-    // Commit 15: crash AFTER the DB commit but BEFORE the SQS delete. The message
-    // must redeliver (same SQS MessageId), the worker's inbox dedup must swallow it
-    // without a second provider call, and the message must eventually be acked.
+    private sealed class RedeliveryEvidenceQueueAdapter(
+        IQueueAdapter inner) : IQueueAdapter
+    {
+        private readonly ConcurrentQueue<string>
+            _receivedMessageIds = new();
+        private int _receiveCount;
+        private int _deleteCount;
+        private int _sendCount;
+        private int _maxApproximateReceiveCount;
+
+        public int ReceiveCount => _receiveCount;
+        public int DeleteCount => _deleteCount;
+        public int SendCount => _sendCount;
+        public int MaxApproximateReceiveCount =>
+            _maxApproximateReceiveCount;
+        public IReadOnlyCollection<string> ReceivedMessageIds =>
+            _receivedMessageIds.ToArray();
+
+        public Task<string> GetOrCreateQueueAsync(
+            string queueName,
+            CancellationToken cancellationToken = default)
+            => inner.GetOrCreateQueueAsync(
+                queueName,
+                cancellationToken);
+
+        public async Task<IQueueMessage?> ReceiveAsync(
+            string queueUrl,
+            int visibilityTimeoutSeconds,
+            CancellationToken cancellationToken = default)
+        {
+            var message = await inner.ReceiveAsync(
+                queueUrl,
+                visibilityTimeoutSeconds,
+                cancellationToken);
+            if (message is null)
+            {
+                return null;
+            }
+
+            _receivedMessageIds.Enqueue(message.MessageId);
+            Interlocked.Increment(ref _receiveCount);
+            var receiveCount = message.ApproximateReceiveCount;
+            int current;
+            while (receiveCount >
+                (current = _maxApproximateReceiveCount))
+            {
+                Interlocked.CompareExchange(
+                    ref _maxApproximateReceiveCount,
+                    receiveCount,
+                    current);
+            }
+
+            return message;
+        }
+
+        public async Task DeleteAsync(
+            string queueUrl,
+            string receiptHandle,
+            CancellationToken cancellationToken = default)
+        {
+            await inner.DeleteAsync(
+                queueUrl,
+                receiptHandle,
+                cancellationToken);
+            Interlocked.Increment(ref _deleteCount);
+        }
+
+        public Task RenewVisibilityAsync(
+            string queueUrl,
+            string receiptHandle,
+            int visibilityTimeoutSeconds,
+            CancellationToken cancellationToken = default)
+            => inner.RenewVisibilityAsync(
+                queueUrl,
+                receiptHandle,
+                visibilityTimeoutSeconds,
+                cancellationToken);
+
+        public async Task SendAsync(
+            string queueUrl,
+            string messageBody,
+            string messageId,
+            string messageType,
+            CancellationToken cancellationToken = default)
+        {
+            await inner.SendAsync(
+                queueUrl,
+                messageBody,
+                messageId,
+                messageType,
+                cancellationToken);
+            Interlocked.Increment(ref _sendCount);
+        }
+    }
 
     private static ReliantDbContext CreateDbContext(string pgConnectionString)
     {
@@ -32,7 +127,11 @@ public class CrashBeforeAckE2ETests
         return new ReliantDbContext(options);
     }
 
-    private async Task<(Guid orgId, Guid contributionId)> SeedCreatedContributionWithOutboxAsync(ReliantDbContext db)
+    private static async Task<(
+        Guid orgId,
+        Guid contributionId,
+        Guid outboxId)> SeedCreatedContributionWithOutboxAsync(
+            ReliantDbContext db)
     {
         var orgId = Guid.NewGuid();
         var campaignId = Guid.NewGuid();
@@ -64,7 +163,7 @@ public class CrashBeforeAckE2ETests
             State = ContributionState.Created,
             Version = 0
         });
-        db.Set<OutboxMessage>().Add(new OutboxMessage
+        var outbox = new OutboxMessage
         {
             Id = Guid.NewGuid(),
             OrganizationId = orgId,
@@ -79,10 +178,13 @@ public class CrashBeforeAckE2ETests
             OccurredAt = DateTime.UtcNow,
             Status = OutboxStatus.Pending,
             Version = 0
-        });
+        };
+        db.Set<OutboxMessage>().Add(outbox);
+        db.Set<JobRun>().Add(
+            JobRun.ForContributionProcessing(outbox));
 
         await db.SaveChangesAsync();
-        return (orgId, contributionId);
+        return (orgId, contributionId, outbox.Id);
     }
 
     private static async Task<bool> WaitUntilAsync(Func<Task<bool>> condition, TimeSpan timeout)
@@ -121,6 +223,7 @@ public class CrashBeforeAckE2ETests
     [Fact]
     public async Task CrashBeforeMessageAck_ShouldRedeliverAndDeduplicate_WithoutSecondProviderEffect()
     {
+        var startedAt = DateTime.UtcNow;
         await using var fixture = new WorkerHostFixture();
         await fixture.InitializeAsync();
 
@@ -132,7 +235,8 @@ public class CrashBeforeAckE2ETests
                 ["Queue:Region"] = "us-west-1"
             })
             .Build();
-        var counter = new CountingQueueAdapter(new SqsQueueAdapter(innerConfig));
+        var counter = new RedeliveryEvidenceQueueAdapter(
+            new SqsQueueAdapter(innerConfig));
 
         await fixture.StartWorkersAsync(
             providerMode: "Success",
@@ -144,9 +248,11 @@ public class CrashBeforeAckE2ETests
 
         Guid orgId;
         Guid contributionId;
+        Guid outboxId;
         using (var db = CreateDbContext(fixture.PgConnectionString))
         {
-            (orgId, contributionId) = await SeedCreatedContributionWithOutboxAsync(db);
+            (orgId, contributionId, outboxId) =
+                await SeedCreatedContributionWithOutboxAsync(db);
         }
 
         var provider = fixture.Host.Services.GetRequiredService<IProvider>() as SandboxProvider;
@@ -155,13 +261,33 @@ public class CrashBeforeAckE2ETests
         // First delivery: provider succeeds, contribution -> Succeeded, inbox
         // committed, then BeforeMessageAck throws BEFORE the SQS delete. The message
         // is left unacked (redelivery is forced).
-        var succeeded = await WaitUntilAsync(async () =>
+        var crashedBeforeAck = await WaitUntilAsync(async () =>
         {
             using var db = CreateDbContext(fixture.PgConnectionString);
             var c = await db.Set<Contribution>().IgnoreQueryFilters().FirstOrDefaultAsync(x => x.Id == contributionId);
-            return c?.State == ContributionState.Succeeded;
+            var inboxCommitted = await db.Set<InboxMessage>()
+                .IgnoreQueryFilters()
+                .AnyAsync(x => x.MessageId == outboxId.ToString());
+            var crashLogged = fixture.LogLines.Any(line =>
+                line.Contains(
+                    "Simulated crash at BeforeMessageAck",
+                    StringComparison.Ordinal));
+            return c?.State == ContributionState.Succeeded &&
+                inboxCommitted &&
+                crashLogged;
         }, TimeSpan.FromSeconds(60));
-        Assert.True(succeeded, "Contribution did not reach Succeeded on first delivery. " + fixture.RecentLogs(30));
+        Assert.True(
+            crashedBeforeAck,
+            "The worker did not commit and then fail before ACK. " +
+            fixture.RecentLogs(50));
+        Assert.Equal(0, counter.DeleteCount);
+        Assert.Equal(1, counter.SendCount);
+        Assert.Equal(1, counter.ReceiveCount);
+        Assert.All(
+            counter.ReceivedMessageIds,
+            messageId => Assert.Equal(
+                outboxId.ToString(),
+                messageId));
 
         await using (var db = CreateDbContext(fixture.PgConnectionString))
         {
@@ -179,8 +305,13 @@ public class CrashBeforeAckE2ETests
             // Exactly one inbox row for the processing message (the crash happened
             // after the inbox commit).
             var inboxes = await db.Set<InboxMessage>().IgnoreQueryFilters()
-                .Where(m => m.OrganizationId == orgId).ToListAsync();
+                .Where(m => m.MessageId == outboxId.ToString()).ToListAsync();
             Assert.Single(inboxes);
+
+            var job = await db.Set<JobRun>()
+                .IgnoreQueryFilters()
+                .SingleAsync(x => x.Id == outboxId);
+            Assert.Equal(JobStatus.Succeeded, job.Status);
 
             // No dead letters from the simulated crash.
             var dead = await db.Set<DeadLetterRecord>().IgnoreQueryFilters().ToListAsync();
@@ -192,6 +323,13 @@ public class CrashBeforeAckE2ETests
             Assert.Single(attempts);
         }
 
+        output.WriteLine(
+            "BEFORE ACK CRASH | MessageId={0} | " +
+            "Contribution=Succeeded | Inbox=Processed | " +
+            "JobRun=Succeeded | ProviderOperation=1 | " +
+            "Attempt=1 | QueueDelete=0",
+            outboxId);
+
         // Redelivery: visibility timeout expires, the SAME message is received again
         // (receiveCount >= 2) and the worker's inbox dedup deletes it (deleteCount >= 1).
         var redelivered = await WaitUntilAsync(
@@ -201,6 +339,14 @@ public class CrashBeforeAckE2ETests
             $"ReceiveCount={counter.ReceiveCount}, DeleteCount={counter.DeleteCount}\n" + fixture.RecentLogs(40));
 
         Assert.True(counter.ReceiveCount >= 2, $"SqsReceiveCount >= 2 expected, got {counter.ReceiveCount}");
+        Assert.True(
+            counter.MaxApproximateReceiveCount >= 2,
+            "SQS did not expose ApproximateReceiveCount >= 2.");
+        Assert.All(
+            counter.ReceivedMessageIds,
+            messageId => Assert.Equal(
+                outboxId.ToString(),
+                messageId));
 
         // Queue eventually empty: the message was finally deleted/acked.
         var queueEmpty = await WaitUntilAsync(async () =>
@@ -216,12 +362,47 @@ public class CrashBeforeAckE2ETests
         // The whole crash + redelivery + dedup cycle still had exactly one provider
         // effect.
         Assert.Equal(1, provider!.OperationCount);
+        Assert.Equal(1, counter.SendCount);
+        Assert.Equal(1, counter.DeleteCount);
 
         await using (var db = CreateDbContext(fixture.PgConnectionString))
         {
             var attempts = await db.Set<ProcessingAttempt>().IgnoreQueryFilters()
                 .Where(a => a.ContributionId == contributionId).ToListAsync();
             Assert.Single(attempts);
+            var inboxes = await db.Set<InboxMessage>()
+                .IgnoreQueryFilters()
+                .Where(x => x.MessageId == outboxId.ToString())
+                .ToListAsync();
+            Assert.Single(inboxes);
+            var references = await db.Set<ProviderReference>()
+                .IgnoreQueryFilters()
+                .Where(x => x.ContributionId == contributionId)
+                .ToListAsync();
+            Assert.Single(references);
+            var deadLetters = await db.Set<DeadLetterRecord>()
+                .IgnoreQueryFilters()
+                .CountAsync();
+            Assert.Equal(0, deadLetters);
         }
+
+        Assert.Contains(
+            fixture.LogLines,
+            line => line.Contains(
+                "already processed (inbox dedup)",
+                StringComparison.Ordinal));
+        output.WriteLine(
+            "REDELIVERY | SameMessageId={0} | ReceiveCount={1} | " +
+            "ApproximateReceiveCount={2} | InboxDedup=true | Delete=1",
+            outboxId,
+            counter.ReceiveCount,
+            counter.MaxApproximateReceiveCount);
+        output.WriteLine(
+            "FINAL | Queue=empty | Inbox=1 | Attempt=1 | " +
+            "ProviderReference=1 | ProviderOperation=1 | " +
+            "DeadLetter=0 | RESULT=PASS | StartedAt={0:O} | " +
+            "CompletedAt={1:O}",
+            startedAt,
+            DateTime.UtcNow);
     }
 }

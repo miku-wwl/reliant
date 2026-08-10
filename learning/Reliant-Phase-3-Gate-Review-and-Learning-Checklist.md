@@ -1214,15 +1214,15 @@ Queue Send/Receive/Delete=2/2/2，Queue empty，DeadLetter=0
 
 ### 步骤
 
-- [ ] 开启 `BeforeMessageAck` Fault
-- [ ] 创建 Contribution
-- [ ] 等待 Provider Success
-- [ ] 检查 Contribution + Inbox 已 Commit
-- [ ] 确认 Worker 在 Delete 前崩溃
-- [ ] 等待 Visibility Timeout
-- [ ] 确认相同 MessageId 重投
-- [ ] 检查 Provider 是否再次调用
-- [ ] 检查消息最终 Delete
+- [x] 开启 `BeforeMessageAck` Fault
+- [x] 创建 Contribution
+- [x] 等待 Provider Success
+- [x] 检查 Contribution + Inbox 已 Commit
+- [x] 确认 Worker 在 Delete 前崩溃
+- [x] 等待 Visibility Timeout
+- [x] 确认相同 MessageId 重投
+- [x] 检查 Provider 是否再次调用
+- [x] 检查消息最终 Delete
 
 ### PASS 条件
 
@@ -1233,6 +1233,22 @@ InboxCount == 1
 AttemptCount == 1
 Queue 最终为空
 ```
+
+### 执行结果
+
+```text
+PASS（E2）
+ACK 前故障：Contribution/Inbox/JobRun 已 Commit、ProviderOperation=1、Delete=0
+Redelivery：同一逻辑 MessageId，ReceiveCount=2
+SQS 原生证据：ApproximateReceiveCount=2
+去重日志：already processed (inbox dedup)
+最终：Inbox=1、Attempt=1、ProviderReference=1、ProviderOperation=1
+Queue Send/Receive/Delete=1/2/1，Queue empty，DeadLetter=0
+生产代码修改：0；旧同题测试迁入 Phase3/Exp4，没有复制文件
+```
+
+聚合实验报告：
+[`learning/phase-3/exp4-same-sqs-message-redelivery.md`](phase-3/exp4-same-sqs-message-redelivery.md)
 
 ---
 

@@ -1,6 +1,6 @@
 # Reliant - Current State
 
-> 最后更新：Phase 3 Experiment 3（Processed but Response Lost）—
+> 最后更新：Phase 3 Experiment 4（Same SQS Message Redelivery）—
 > Local Verified；Phase 3.1 CI baseline 仍为 Completed
 
 ## Phase 3.1 状态
@@ -58,6 +58,7 @@ Owner Experiments。最新本地全量结果：
 | Provider Happy Path Evidence | Implemented | Verified | learning/phase-3/exp1-happy-path-provider-evidence.md |
 | Provider NotFound Safe Retry | Implemented | Verified | learning/phase-3/exp2-timeout-before-processing.md |
 | Provider Response Lost Recovery | Implemented | Verified | learning/phase-3/exp3-processed-response-lost.md |
+| Same SQS Message Redelivery | Implemented | Verified | learning/phase-3/exp4-same-sqs-message-redelivery.md |
 | Optimistic Concurrency | Implemented | Verified | Integration Test: OptimisticConcurrency_ShouldPreventLostUpdate |
 | OpenTelemetry | Not Started | Not Started | - |
 | Metrics / Logs / Dashboard | Not Started | Not Started | - |
@@ -82,7 +83,7 @@ Owner Experiments。最新本地全量结果：
 
 - Unit Tests: 65
 - Architecture Tests: 5
-- PostgreSQL Integration Tests: 70
+- PostgreSQL Integration Tests: 71
 - LocalStack Integration Tests: 31
 - HTTP API Integration Tests: 9
 - WorkerHost End-to-End Tests: 25
