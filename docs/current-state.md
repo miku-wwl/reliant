@@ -1,6 +1,6 @@
 # Reliant - Current State
 
-> 最后更新：Phase 2 Experiment 12（SQS Visibility Heartbeat）—
+> 最后更新：Phase 3 Experiment 1（Happy Path with Provider Evidence）—
 > Local Verified；Phase 3.1 CI baseline 仍为 Completed
 
 ## Phase 3.1 状态
@@ -16,10 +16,11 @@ Evidence pack: docs/evidence/phase-3.1/
 CI evidence: docs/evidence/phase-3.1/ci-run.md
 ```
 
-当前工作树在 Phase 3.1 基线上补充了 Phase 2 Exp1–Exp12，最新本地全量结果：
+当前工作树在 Phase 3.1 基线上完成了 Phase 2 Exp1–Exp12，并开始补充 Phase 3
+Owner Experiments。最新本地全量结果：
 
 ```text
-161 passed, 0 failed, 0 skipped
+162 passed, 0 failed, 0 skipped
 ```
 
 新增代码 push 后需要重新取得 GitHub Actions CI evidence；原 146-test CI
@@ -54,6 +55,7 @@ CI evidence: docs/evidence/phase-3.1/ci-run.md
 | Backlog Growth / Scale-out Recovery | Implemented | Verified | learning/phase-2/exp10-backlog-growth-and-recovery.md |
 | Stale Owner Fencing Token | Implemented | Verified | learning/phase-2/exp11-stale-owner-fencing.md |
 | SQS Visibility + Lease Heartbeat | Implemented | Verified | learning/phase-2/exp12-sqs-visibility-heartbeat.md |
+| Provider Happy Path Evidence | Implemented | Verified | learning/phase-3/exp1-happy-path-provider-evidence.md |
 | Optimistic Concurrency | Implemented | Verified | Integration Test: OptimisticConcurrency_ShouldPreventLostUpdate |
 | OpenTelemetry | Not Started | Not Started | - |
 | Metrics / Logs / Dashboard | Not Started | Not Started | - |
@@ -78,9 +80,9 @@ CI evidence: docs/evidence/phase-3.1/ci-run.md
 
 - Unit Tests: 65
 - Architecture Tests: 5
-- PostgreSQL Integration Tests: 67
-- LocalStack Integration Tests: 28
+- PostgreSQL Integration Tests: 68
+- LocalStack Integration Tests: 29
 - HTTP API Integration Tests: 9
-- WorkerHost End-to-End Tests: 22
-- Integration Tests Total: 91
-- Total Tests: 161
+- WorkerHost End-to-End Tests: 23
+- Integration Tests Total: 92
+- Total Tests: 162

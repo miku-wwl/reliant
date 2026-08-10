@@ -1071,15 +1071,15 @@ Commit 后才 ACK
 
 ### 步骤
 
-- [ ] 创建一笔 Contribution
-- [ ] 观察 Contribution + Outbox
-- [ ] 启动 Publisher 和 Worker
-- [ ] 检查 ProcessingAttempt
-- [ ] 检查 Provider Operation
-- [ ] 检查 ProviderReference
-- [ ] 检查 StateTransition
-- [ ] 检查 Inbox
-- [ ] 检查 SQS 最终为空
+- [x] 创建一笔 Contribution
+- [x] 观察 Contribution + Outbox
+- [x] 启动 Publisher 和 Worker
+- [x] 检查 ProcessingAttempt
+- [x] 检查 Provider Operation
+- [x] 检查 ProviderReference
+- [x] 检查 StateTransition
+- [x] 检查 Inbox
+- [x] 检查 SQS 最终为空
 
 ### PASS 条件
 
@@ -1091,6 +1091,21 @@ Attempt 在 Provider 调用前存在
 状态转换完整
 消息最终 ACK
 ```
+
+### 执行结果
+
+```text
+PASS（E2）
+Provider 调用前：Attempt=Pending、ProviderOperation=0、Inbox=0、ACK=0
+ACK 前：Contribution/JobRun/Attempt=Succeeded、Reference=1、Inbox=Processed、ACK=0
+状态审计：Created→Created→Accepted→Processing→Succeeded
+最终：ProviderOperation=1、ProviderReference=1、Inbox=1
+Queue Send/Receive/Delete=1/1/1，Queue empty，DeadLetter=0
+生产代码修改：0
+```
+
+聚合实验报告：
+[`learning/phase-3/exp1-happy-path-provider-evidence.md`](phase-3/exp1-happy-path-provider-evidence.md)
 
 ---
 
