@@ -1438,15 +1438,15 @@ Callback 先把 Contribution 更新为 Succeeded 后，Worker 的迟到 Submit R
 
 ### 步骤
 
-- [ ] Provider Submit 设置长响应延迟
-- [ ] Provider 完成 Operation
-- [ ] Callback 立即到达
-- [ ] Callback 将 Contribution 改为 Succeeded
-- [ ] Submit Response 后到
-- [ ] Worker Reload Contribution
-- [ ] 检查 Worker 是否再次 Transition
-- [ ] 重复发送相同 Callback
-- [ ] 尝试后续 Reconciliation
+- [x] Provider Submit 设置长响应延迟
+- [x] Provider 完成 Operation
+- [x] Callback 立即到达
+- [x] Callback 将 Contribution 改为 Succeeded
+- [x] Submit Response 后到
+- [x] Worker Reload Contribution
+- [x] 检查 Worker 是否再次 Transition
+- [x] 重复发送相同 Callback
+- [x] 尝试后续 Reconciliation
 
 ### PASS 条件
 
@@ -1457,6 +1457,24 @@ Callback Inbox 只有一条
 无第二次状态变化
 后续 Reconciliation 安全跳过
 ```
+
+### 执行结果
+
+```text
+PASS（E2）— 1/1
+Provider Operation=1 后，在 AfterProviderProcessed 边界暂停 Submit Response
+Callback：Processing -> Succeeded，Callback Inbox=1
+迟到响应：ProcessingAttempt=Succeeded、ProviderReference=1
+Worker：真实 Reload 看到 Succeeded，新增 Succeeded Transition=0
+重复 Callback：200，Callback Inbox 仍为1
+后续 Reconciliation：Not in reconciliation state, skipping，Record=0
+最终：Queue Send/Receive/Delete=1/1/1、DeadLetter=0
+生产代码修改：0
+测试聚合：删除1条非并发旧用例，替换为1条真实 WorkerHost 竞态 E2E
+```
+
+聚合实验报告：
+[`learning/phase-3/exp9-callback-before-submit-response.md`](phase-3/exp9-callback-before-submit-response.md)
 
 ---
 

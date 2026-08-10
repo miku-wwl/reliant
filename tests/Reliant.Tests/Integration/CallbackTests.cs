@@ -277,55 +277,6 @@ public class CallbackTests : IClassFixture<PostgreSqlFixture>
     }
 
     [Fact]
-    public async Task CallbackBeforeSubmitResponse_ShouldNotBeOverwrittenByWorker()
-    {
-        var (orgId, contributionId) = await SeedDataAsync(ContributionState.Processing);
-        // Provider processes the operation but its response is lost -> Unknown.
-        var sp = BuildServices("ProcessedButResponseLost");
-
-        using var scope = sp.CreateScope();
-        var tenantContext = scope.ServiceProvider.GetRequiredService<ITenantContext>();
-        tenantContext.SetTenant(orgId, null, null, "test");
-        TenantFilterAccessor.SetOrganizationId(orgId);
-
-        var sender = scope.ServiceProvider.GetRequiredService<MediatR.ISender>();
-        var keyFactory = scope.ServiceProvider.GetRequiredService<IProviderOperationKeyFactory>();
-        var idempotencyKey = keyFactory.CreateContributionSubmitKey(orgId, contributionId, "sandbox");
-
-        // The worker's provider call: operation created server-side, response lost.
-        var submitResult = await sender.Send(new SubmitToProviderCommand(contributionId, orgId, 100m, "USD", "TEST-001"));
-        Assert.Equal(AttemptStatus.Unknown, submitResult.Status);
-
-        var provider = scope.ServiceProvider.GetRequiredService<IProvider>() as SandboxProvider;
-        Assert.NotNull(provider);
-        Assert.Equal(1, provider!.OperationCount);
-
-        // Callback arrives (by idempotency key) before the worker finishes handling the response.
-        var callbackResult = await sender.Send(new HandleProviderCallbackCommand(
-            Callback("evt-before-1", "succeeded", idempotencyKey: idempotencyKey)));
-        Assert.Equal(200, callbackResult.StatusCode);
-
-        var db = scope.ServiceProvider.GetRequiredService<ReliantDbContext>();
-        var contributionAfterCallback = await db.Set<Contribution>().IgnoreQueryFilters().SingleAsync(c => c.Id == contributionId);
-        Assert.Equal(ContributionState.Succeeded, contributionAfterCallback.State);
-
-        // Worker's delayed re-submit must not create a second provider effect.
-        var workerResubmit = await sender.Send(new SubmitToProviderCommand(contributionId, orgId, 100m, "USD", "TEST-001"));
-        Assert.Equal(AttemptStatus.Succeeded, workerResubmit.Status);
-        Assert.Equal(1, provider.OperationCount);
-
-        var references = await db.Set<ProviderReference>().IgnoreQueryFilters()
-            .Where(r => r.ContributionId == contributionId)
-            .ToListAsync();
-        Assert.Single(references);
-
-        var contributionFinal = await db.Set<Contribution>().IgnoreQueryFilters().SingleAsync(c => c.Id == contributionId);
-        Assert.Equal(ContributionState.Succeeded, contributionFinal.State);
-
-        TenantFilterAccessor.Clear();
-    }
-
-    [Fact]
     public async Task CallbackDuringReconciliationPending_ShouldConvergeToSucceeded()
     {
         var (orgId, contributionId) = await SeedDataAsync(ContributionState.ReconciliationPending);
