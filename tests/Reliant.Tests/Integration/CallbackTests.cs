@@ -214,50 +214,6 @@ public class CallbackTests : IClassFixture<PostgreSqlFixture>
     }
 
     [Fact]
-    public async Task TerminalStateConflict_ShouldCreateManualRequiredReconciliation()
-    {
-        var (orgId, contributionId) = await SeedDataAsync(ContributionState.Succeeded);
-        var sp = BuildServices();
-
-        using var scope = sp.CreateScope();
-        var tenantContext = scope.ServiceProvider.GetRequiredService<ITenantContext>();
-        tenantContext.SetTenant(orgId, null, null, "test");
-        TenantFilterAccessor.SetOrganizationId(orgId);
-
-        var db = scope.ServiceProvider.GetRequiredService<ReliantDbContext>();
-        db.Set<ProviderReference>().Add(new ProviderReference
-        {
-            Id = Guid.NewGuid(),
-            ContributionId = contributionId,
-            OrganizationId = orgId,
-            Reference = "ref_conflict_001",
-            ProviderName = "sandbox"
-        });
-        await db.SaveChangesAsync();
-
-        var sender = scope.ServiceProvider.GetRequiredService<MediatR.ISender>();
-        var result = await sender.Send(new HandleProviderCallbackCommand(
-            Callback("evt-conflict-1", "failed", providerReference: "ref_conflict_001")));
-
-        Assert.Equal(200, result.StatusCode);
-        Assert.Contains("ManualRequired", result.Message);
-
-        var contribution = await db.Set<Contribution>().IgnoreQueryFilters().SingleAsync(c => c.Id == contributionId);
-        Assert.Equal(ContributionState.Succeeded, contribution.State);
-
-        var record = await db.Set<ReconciliationRecord>().IgnoreQueryFilters()
-            .SingleOrDefaultAsync(r => r.ContributionId == contributionId);
-        Assert.NotNull(record);
-        Assert.Equal("ManualRequired", record!.Resolution);
-
-        var alert = await db.Set<OutboxMessage>().IgnoreQueryFilters()
-            .SingleOrDefaultAsync(o => o.MessageType == "OperatorAlert");
-        Assert.NotNull(alert);
-
-        TenantFilterAccessor.Clear();
-    }
-
-    [Fact]
     public async Task UnknownCallbackStatus_ShouldReturn400_WithoutProcessedInbox()
     {
         await _fixture.ResetAsync();

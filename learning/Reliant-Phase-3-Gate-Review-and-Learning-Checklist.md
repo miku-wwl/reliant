@@ -1597,13 +1597,13 @@ Provider Callback / Query 返回 Succeeded
 
 ### 步骤
 
-- [ ] 准备本地 Failed Contribution
-- [ ] 发送 Provider Succeeded Callback
-- [ ] 检查 Contribution 是否被直接覆盖
-- [ ] 检查 ReconciliationRecord
-- [ ] 检查 ManualRequired
-- [ ] 检查 Operator Alert Outbox
-- [ ] 检查 AuditEvent
+- [x] 准备本地 Failed Contribution
+- [x] 发送 Provider Succeeded Callback
+- [x] 检查 Contribution 是否被直接覆盖
+- [x] 检查 ReconciliationRecord
+- [x] 检查 ManualRequired
+- [x] 检查 Operator Alert Outbox
+- [x] 检查 AuditEvent
 
 ### PASS 条件
 
@@ -1613,6 +1613,22 @@ ManualRequired 被记录
 冲突原因可审计
 存在 Operator Alert 或明确 Known Limitation
 ```
+
+### 执行结果
+
+```text
+PASS（E2）— 1/1，聚合2个对称终态冲突场景
+Failed(local) vs Succeeded(provider)：本地保持 Failed/Version=0
+Succeeded(local) vs Failed(provider)：本地保持 Succeeded/Version=0
+两个场景：StateTransition=0、Reconciliation=1/ManualRequired
+两个场景：OperatorAlert=1/Pending、Callback Inbox=1、payload 完整
+AuditEvent=0：已检查；冲突审计由 ReconciliationRecord + Alert + Inbox 承载
+生产代码修改：0
+测试聚合：删除1条单向弱用例，替换为1条双向聚合测试，测试总数净变化0
+```
+
+聚合实验报告：
+[`learning/phase-3/exp12-terminal-conflict-manual-required.md`](phase-3/exp12-terminal-conflict-manual-required.md)
 
 ---
 

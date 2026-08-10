@@ -1,6 +1,6 @@
 # Reliant - Current State
 
-> 最后更新：Phase 3 Experiment 11（Circuit Open No ACK）—
+> 最后更新：Phase 3 Experiment 12（Terminal Conflict and ManualRequired）—
 > Local Verified；Phase 3.1 CI baseline 仍为 Completed
 
 ## Phase 3.1 状态
@@ -66,6 +66,7 @@ Owner Experiments。最新本地全量结果：
 | Callback-before-response Lost-update Protection | Implemented | Verified | learning/phase-3/exp9-callback-before-submit-response.md |
 | Concurrent Reconciliation Single-winner | Implemented | Verified | learning/phase-3/exp10-concurrent-reconciliation.md |
 | Circuit-open No-ACK / No-retry-budget | Implemented | Verified | learning/phase-3/exp11-circuit-open-no-ack.md |
+| Terminal Conflict / ManualRequired | Implemented | Verified | learning/phase-3/exp12-terminal-conflict-manual-required.md |
 | Optimistic Concurrency | Implemented | Verified | Integration Test: OptimisticConcurrency_ShouldPreventLostUpdate |
 | OpenTelemetry | Not Started | Not Started | - |
 | Metrics / Logs / Dashboard | Not Started | Not Started | - |
