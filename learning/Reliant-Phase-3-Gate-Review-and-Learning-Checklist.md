@@ -1166,16 +1166,16 @@ Provider 已处理但响应丢失时，系统通过 Reconciliation 找回原结�
 
 ### 步骤
 
-- [ ] Provider Mode 设置为 `ProcessedButResponseLost`
-- [ ] 创建 Contribution
-- [ ] 等待 Provider 创建 Operation
-- [ ] 检查 Attempt == Unknown
-- [ ] 检查状态进入 ProviderUnknown
-- [ ] 检查状态进入 ReconciliationPending
-- [ ] 触发 Reconciliation
-- [ ] 检查 Query by Key 返回 Succeeded
-- [ ] 检查 ProviderReference 补写
-- [ ] 再次投递业务消息
+- [x] Provider Mode 设置为 `ProcessedButResponseLost`
+- [x] 创建 Contribution
+- [x] 等待 Provider 创建 Operation
+- [x] 检查 Attempt == Unknown
+- [x] 检查状态进入 ProviderUnknown
+- [x] 检查状态进入 ReconciliationPending
+- [x] 触发 Reconciliation
+- [x] 检查 Query by Key 返回 Succeeded
+- [x] 检查 ProviderReference 补写
+- [x] 再次投递业务消息
 
 ### PASS 条件
 
@@ -1186,6 +1186,23 @@ Contribution.State == Succeeded
 UnknownAttemptCount == 1
 无第二个 Provider Effect
 ```
+
+### 执行结果
+
+```text
+PASS（E2）
+Response Lost 后：Attempt=1/Unknown/Timeout、ProviderOperation=1
+Response Lost 后：AttemptReference=null、ProviderReferenceCount=0
+Reconciliation：QueryByKey=Succeeded、Resolution=AutoFixed
+Reconciliation 后：Contribution=Succeeded、ProviderReferenceCount=1
+新 MessageId 再投递：终态幂等 ACK、AttemptCount 仍为 1
+最终：UnknownAttempt=1、ProviderOperation=1、ProviderReference=1
+Queue Send/Receive/Delete=2/2/2，Queue empty，DeadLetter=0
+生产代码修改：0
+```
+
+聚合实验报告：
+[`learning/phase-3/exp3-processed-response-lost.md`](phase-3/exp3-processed-response-lost.md)
 
 ---
 
