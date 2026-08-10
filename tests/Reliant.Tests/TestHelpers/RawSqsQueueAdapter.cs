@@ -129,7 +129,11 @@ public sealed class RawSqsQueueAdapter : IQueueAdapter
 
     private sealed class TestSqsMessage(Message msg) : IQueueMessage
     {
-        public string MessageId => msg.MessageId;
+        public string MessageId =>
+            msg.MessageAttributes.TryGetValue("MessageId", out var attr) &&
+            !string.IsNullOrWhiteSpace(attr.StringValue)
+                ? attr.StringValue
+                : msg.MessageId;
         public string MessageType => msg.MessageAttributes.TryGetValue("MessageType", out var attr) ? attr.StringValue : "Unknown";
         public string Payload => msg.Body;
         public int ApproximateReceiveCount =>

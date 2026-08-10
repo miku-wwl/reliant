@@ -1530,18 +1530,18 @@ Circuit Open 时消息不会被错误 ACK，也不会消耗 Retry Budget。
 
 ### 步骤
 
-- [ ] 触发 Circuit Open
-- [ ] 创建 Contribution
-- [ ] 等待 Worker Receive
-- [ ] 检查 ProviderOperationCount
-- [ ] 检查 ProcessingAttempt
-- [ ] 检查 RetryCount
-- [ ] 检查 Inbox
-- [ ] 检查 SQS DeleteCount
-- [ ] 等待 Visibility Timeout
-- [ ] 检查 ApproximateReceiveCount
-- [ ] Close Circuit
-- [ ] 等待最终成功
+- [x] 触发 Circuit Open
+- [x] 创建 Contribution
+- [x] 等待 Worker Receive
+- [x] 检查 ProviderOperationCount
+- [x] 检查 ProcessingAttempt
+- [x] 检查 RetryCount
+- [x] 检查 Inbox
+- [x] 检查 SQS DeleteCount
+- [x] 等待 Visibility Timeout
+- [x] 检查 ApproximateReceiveCount
+- [x] Close Circuit
+- [x] 等待最终成功
 
 ### PASS 条件
 
@@ -1563,6 +1563,22 @@ ProviderOperationCount == 1
 Contribution == Succeeded
 消息最终 ACK
 ```
+
+### 执行结果
+
+```text
+PASS（E2）— 1/1
+Open：Receive=2、SQS ApproximateReceiveCount=2、JobAttempt=2/all Deferred
+Open：ProviderOperation=0、ProcessingAttempt=0、RetryCount=0、Inbox=0、Delete=0
+Close 后：ProviderOperation=1、ProcessingAttempt=1/Succeeded、ProviderReference=1
+最终：Contribution=Succeeded、Inbox=1、Delete=1、Job=Succeeded、Queue empty
+生产代码修改：0
+测试 helper 修复：Raw adapter 与生产 adapter 一样读取逻辑 MessageId attribute
+测试聚合：根目录旧测试升级并移动到 Phase3/Exp11，测试总数净变化0
+```
+
+聚合实验报告：
+[`learning/phase-3/exp11-circuit-open-no-ack.md`](phase-3/exp11-circuit-open-no-ack.md)
 
 ---
 

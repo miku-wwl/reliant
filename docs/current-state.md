@@ -1,6 +1,6 @@
 # Reliant - Current State
 
-> 最后更新：Phase 3 Experiment 10（Concurrent Reconciliation）—
+> 最后更新：Phase 3 Experiment 11（Circuit Open No ACK）—
 > Local Verified；Phase 3.1 CI baseline 仍为 Completed
 
 ## Phase 3.1 状态
@@ -65,6 +65,7 @@ Owner Experiments。最新本地全量结果：
 | Duplicate Callback Idempotency | Implemented | Verified | learning/phase-3/exp8-duplicate-callback.md |
 | Callback-before-response Lost-update Protection | Implemented | Verified | learning/phase-3/exp9-callback-before-submit-response.md |
 | Concurrent Reconciliation Single-winner | Implemented | Verified | learning/phase-3/exp10-concurrent-reconciliation.md |
+| Circuit-open No-ACK / No-retry-budget | Implemented | Verified | learning/phase-3/exp11-circuit-open-no-ack.md |
 | Optimistic Concurrency | Implemented | Verified | Integration Test: OptimisticConcurrency_ShouldPreventLostUpdate |
 | OpenTelemetry | Not Started | Not Started | - |
 | Metrics / Logs / Dashboard | Not Started | Not Started | - |
@@ -89,7 +90,7 @@ Owner Experiments。最新本地全量结果：
 
 - Unit Tests: 65
 - Architecture Tests: 5
-- PostgreSQL Integration Tests: 80
+- PostgreSQL Integration Tests: 81
 - LocalStack Integration Tests: 29
 - HTTP API Integration Tests: 10
 - WorkerHost End-to-End Tests: 23
