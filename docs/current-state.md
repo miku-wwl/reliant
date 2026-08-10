@@ -1,6 +1,6 @@
 # Reliant - Current State
 
-> 最后更新：Phase 3 Experiment 13（Retry Exhaustion）—
+> 最后更新：Phase 3 Experiment 14（Provider Backlog and Recovery）—
 > Local Verified；Phase 3.1 CI baseline 仍为 Completed
 
 ## Phase 3.1 状态
@@ -20,7 +20,7 @@ CI evidence: docs/evidence/phase-3.1/ci-run.md
 Owner Experiments。最新本地全量结果：
 
 ```text
-160 passed, 0 failed, 0 skipped
+161 passed, 0 failed, 0 skipped
 ```
 
 新增代码 push 后需要重新取得 GitHub Actions CI evidence；原 146-test CI
@@ -68,6 +68,7 @@ Owner Experiments。最新本地全量结果：
 | Circuit-open No-ACK / No-retry-budget | Implemented | Verified | learning/phase-3/exp11-circuit-open-no-ack.md |
 | Terminal Conflict / ManualRequired | Implemented | Verified | learning/phase-3/exp12-terminal-conflict-manual-required.md |
 | Phase 3 Retry Exhaustion Evidence | Implemented | Verified | learning/phase-3/exp13-retry-exhaustion.md |
+| Provider Outage Backlog / Circuit Recovery | Implemented | Verified | learning/phase-3/exp14-provider-backlog-and-recovery.md |
 | Optimistic Concurrency | Implemented | Verified | Integration Test: OptimisticConcurrency_ShouldPreventLostUpdate |
 | OpenTelemetry | Not Started | Not Started | - |
 | Metrics / Logs / Dashboard | Not Started | Not Started | - |
@@ -92,9 +93,9 @@ Owner Experiments。最新本地全量结果：
 
 - Unit Tests: 65
 - Architecture Tests: 5
-- PostgreSQL Integration Tests: 82
-- LocalStack Integration Tests: 30
+- PostgreSQL Integration Tests: 83
+- LocalStack Integration Tests: 31
 - HTTP API Integration Tests: 10
-- WorkerHost End-to-End Tests: 24
-- Integration Tests Total: 90
-- Total Tests: 160
+- WorkerHost End-to-End Tests: 25
+- Integration Tests Total: 91
+- Total Tests: 161

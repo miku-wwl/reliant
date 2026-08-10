@@ -1685,17 +1685,17 @@ Provider 故障造成积压时，Circuit 和 Backpressure 可以限制压力，�
 
 ### 步骤
 
-- [ ] 批量创建 50–100 个 Contribution
-- [ ] Provider 设置 5xx / 高延迟
-- [ ] 观察 Circuit 何时 Open
-- [ ] 观察 Queue Depth
-- [ ] 观察 Oldest Message Age
-- [ ] 观察 RetryPending Count
-- [ ] 观察 Provider Call Count
-- [ ] 恢复 Provider
-- [ ] 观察 Half-Open Probe
-- [ ] 测量队列清空时间
-- [ ] 检查是否出现重复 Provider Effect
+- [x] 批量创建 50–100 个 Contribution
+- [x] Provider 设置 5xx / 高延迟
+- [x] 观察 Circuit 何时 Open
+- [x] 观察 Queue Depth
+- [x] 观察 Oldest Message Age
+- [x] 观察 RetryPending Count
+- [x] 观察 Provider Call Count
+- [x] 恢复 Provider
+- [x] 观察 Half-Open Probe
+- [x] 测量队列清空时间
+- [x] 检查是否出现重复 Provider Effect
 
 ### PASS 条件
 
@@ -1706,6 +1706,25 @@ Queue 积压可观察
 队列最终清空
 无重复业务效果
 ```
+
+### 执行结果
+
+```text
+PASS（E2）— Exp14 1/1；全量 161/161
+批量：50 个 Contribution / 50 条 SQS Message
+故障：Error5xxBeforeProcessing + 100ms Provider latency
+Open：第 5 次 5xx 后打开；Provider Effect=0
+积压：Queue Depth=45；Oldest Message Age≈4.1s；RetryPending=5
+恢复：观察到 Half-Open 单 Probe；并发限制=1
+恢复速率：最大 1 个 Provider Effect / 100ms；约 13.0s 清空
+最终：50 Succeeded、50 ProviderReference、50 Provider Effect
+重复业务效果=0；DeadLetter=0；Queue Depth=0
+生产代码修改：0
+测试基础设施：WorkerHostFixture 增加可选 Circuit 注入，默认行为不变
+```
+
+聚合实验报告：
+[`learning/phase-3/exp14-provider-backlog-and-recovery.md`](phase-3/exp14-provider-backlog-and-recovery.md)
 
 ---
 

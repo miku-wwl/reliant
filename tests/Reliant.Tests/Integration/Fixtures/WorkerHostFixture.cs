@@ -138,7 +138,8 @@ public sealed class WorkerHostFixture : IAsyncLifetime
         int leaseSeconds = 30,
         int heartbeatIntervalMs = 10000,
         int processingConcurrency = 10,
-        int providerSubmitDelayMs = 0)
+        int providerSubmitDelayMs = 0,
+        CircuitBreaker? circuitBreakerOverride = null)
     {
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(
             new HostApplicationBuilderSettings { Args = Array.Empty<string>() });
@@ -180,6 +181,8 @@ public sealed class WorkerHostFixture : IAsyncLifetime
 
         builder.Services.AddReliantApplication();
         builder.Services.AddReliantInfrastructure(builder.Configuration);
+        if (circuitBreakerOverride is not null)
+            builder.Services.AddSingleton(circuitBreakerOverride);
         if (dbInterceptor is not null)
             builder.Services.ConfigureDbContext<ReliantDbContext>(
                 options => options.AddInterceptors(dbInterceptor));
