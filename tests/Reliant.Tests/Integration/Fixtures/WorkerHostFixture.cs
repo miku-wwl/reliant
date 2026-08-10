@@ -139,7 +139,12 @@ public sealed class WorkerHostFixture : IAsyncLifetime
         int heartbeatIntervalMs = 10000,
         int processingConcurrency = 10,
         int providerSubmitDelayMs = 0,
-        CircuitBreaker? circuitBreakerOverride = null)
+        CircuitBreaker? circuitBreakerOverride = null,
+        IOperationalHistoryCleanupFaultInjector?
+            cleanupFaultInjectorOverride = null,
+        IReadOnlyDictionary<string, string?>?
+            configurationOverrides = null,
+        bool includeOutboxPublisher = true)
     {
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(
             new HostApplicationBuilderSettings { Args = Array.Empty<string>() });
@@ -178,6 +183,9 @@ public sealed class WorkerHostFixture : IAsyncLifetime
             ["Worker:ProcessingConcurrency"] =
                 processingConcurrency.ToString()
         });
+        if (configurationOverrides is not null)
+            builder.Configuration.AddInMemoryCollection(
+                configurationOverrides);
 
         builder.Services.AddReliantApplication();
         builder.Services.AddReliantInfrastructure(builder.Configuration);
@@ -188,6 +196,14 @@ public sealed class WorkerHostFixture : IAsyncLifetime
                 options => options.AddInterceptors(dbInterceptor));
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddScoped<IRetryScheduler, RetrySchedulerService>();
+        builder.Services.AddSingleton<OperationalHistoryTelemetry>();
+        builder.Services.AddSingleton<
+            IOperationalHistoryCleanupFaultInjector,
+            NoopOperationalHistoryCleanupFaultInjector>();
+        builder.Services.AddScoped<OperationalHistoryCleanupService>();
+        if (cleanupFaultInjectorOverride is not null)
+            builder.Services.AddSingleton(
+                cleanupFaultInjectorOverride);
         if (faultInjector is not null)
             builder.Services.AddSingleton<IWorkerFaultInjector>(faultInjector);
         if (queueAdapterOverride is not null)
@@ -203,7 +219,8 @@ public sealed class WorkerHostFixture : IAsyncLifetime
                 jobAttemptRepositoryOverride);
         builder.Logging.ClearProviders();
         builder.Logging.AddProvider(_loggerProvider);
-        builder.Services.AddHostedService<OutboxPublisherService>();
+        if (includeOutboxPublisher)
+            builder.Services.AddHostedService<OutboxPublisherService>();
         if (includeProcessing) builder.Services.AddHostedService<ProcessingHandlerService>();
         if (includeReconciliation) builder.Services.AddHostedService<ReconciliationHandlerService>();
         builder.Services.AddHostedService<ScheduledMaintenanceHandlerService>();

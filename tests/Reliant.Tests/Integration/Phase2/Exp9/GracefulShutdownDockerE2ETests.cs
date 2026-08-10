@@ -23,6 +23,7 @@ namespace Reliant.Tests.Integration.Phase2.Exp9;
 [Trait("Dependency", "DockerCli")]
 [Trait("Dependency", "PostgreSQL")]
 [Trait("Dependency", "LocalStack")]
+[Collection("Docker Worker Publish")]
 public sealed class GracefulShutdownDockerE2ETests(
     ITestOutputHelper output)
 {

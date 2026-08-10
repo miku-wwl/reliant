@@ -1,6 +1,6 @@
 # Reliant - Current State
 
-> 最后更新：Phase 3 Experiment 14（Provider Backlog and Recovery）—
+> 最后更新：Phase 3 Experiment 15（Operational History Retention）—
 > Local Verified；Phase 3.1 CI baseline 仍为 Completed
 
 ## Phase 3.1 状态
@@ -16,11 +16,11 @@ Evidence pack: docs/evidence/phase-3.1/
 CI evidence: docs/evidence/phase-3.1/ci-run.md
 ```
 
-当前工作树在 Phase 3.1 基线上完成了 Phase 2 Exp1–Exp12，并开始补充 Phase 3
-Owner Experiments。最新本地全量结果：
+当前工作树在 Phase 3.1 基线上完成了 Phase 2 Exp1–Exp12，并完成 Phase 3
+Exp1–Exp15 Owner Experiments。最新本地全量结果：
 
 ```text
-161 passed, 0 failed, 0 skipped
+162 passed, 0 failed, 0 skipped
 ```
 
 新增代码 push 后需要重新取得 GitHub Actions CI evidence；原 146-test CI
@@ -69,6 +69,7 @@ Owner Experiments。最新本地全量结果：
 | Terminal Conflict / ManualRequired | Implemented | Verified | learning/phase-3/exp12-terminal-conflict-manual-required.md |
 | Phase 3 Retry Exhaustion Evidence | Implemented | Verified | learning/phase-3/exp13-retry-exhaustion.md |
 | Provider Outage Backlog / Circuit Recovery | Implemented | Verified | learning/phase-3/exp14-provider-backlog-and-recovery.md |
+| Operational History Retention / Capacity Guardrails | Implemented | Verified | learning/phase-3/exp15-operational-history-retention.md |
 | Optimistic Concurrency | Implemented | Verified | Integration Test: OptimisticConcurrency_ShouldPreventLostUpdate |
 | OpenTelemetry | Not Started | Not Started | - |
 | Metrics / Logs / Dashboard | Not Started | Not Started | - |
@@ -93,9 +94,9 @@ Owner Experiments。最新本地全量结果：
 
 - Unit Tests: 65
 - Architecture Tests: 5
-- PostgreSQL Integration Tests: 83
-- LocalStack Integration Tests: 31
+- PostgreSQL Integration Tests: 84
+- LocalStack Integration Tests: 32
 - HTTP API Integration Tests: 10
-- WorkerHost End-to-End Tests: 25
-- Integration Tests Total: 91
-- Total Tests: 161
+- WorkerHost End-to-End Tests: 26
+- Integration Tests Total: 92
+- Total Tests: 162

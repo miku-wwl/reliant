@@ -25,6 +25,7 @@ namespace Reliant.Tests.Integration.Phase2.Exp11;
 [Trait("Dependency", "PostgreSQL")]
 [Trait("Dependency", "LocalStack")]
 [Trait("Dependency", "WorkerHost")]
+[Collection("Docker Worker Publish")]
 public sealed class StaleOwnerFencingDockerE2ETests(
     ITestOutputHelper output)
 {

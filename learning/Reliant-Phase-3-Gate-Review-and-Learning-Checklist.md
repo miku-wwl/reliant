@@ -1742,20 +1742,20 @@ JobRun、JobAttempt、Lease、Inbox、Outbox 和 Reconciliation 等运行历史�
 
 ### 步骤
 
-- [ ] 为每类表定义 Owner、保留周期、归档方式和删除依据
-- [ ] 明确 Terminal、Active、Pending、Unknown、ManualRequired 的保留规则
-- [ ] 明确 AuditEvent / StateTransition 是否只归档而不直接删除
-- [ ] 准备超过 Retention Cutoff 的终结历史数据
-- [ ] 同时准备未过期和仍在处理中的控制组数据
-- [ ] 使用小批次、可重入的 Maintenance Cleanup 执行清理
-- [ ] 验证 JobAttempt、Lease、JobRun 等外键删除顺序
-- [ ] 并发运行两个 Cleanup Scanner，确认不会重复处理或长时间锁表
-- [ ] 中途终止 Cleanup，再次启动并确认能够继续
-- [ ] 检查 Cleanup 扫描数、删除数、跳过数、失败数和耗时指标
-- [ ] 检查表大小、最老可清理记录年龄和预计清空时间
-- [ ] 模拟 Cleanup 持续失败或表容量超过阈值
-- [ ] 确认容量告警和 Cleanup Failure 告警触发
-- [ ] 检查活跃 Job、未解决记录、业务数据和审计证据没有被误删
+- [x] 为每类表定义 Owner、保留周期、归档方式和删除依据
+- [x] 明确 Terminal、Active、Pending、Unknown、ManualRequired 的保留规则
+- [x] 明确 AuditEvent / StateTransition 是否只归档而不直接删除
+- [x] 准备超过 Retention Cutoff 的终结历史数据
+- [x] 同时准备未过期和仍在处理中的控制组数据
+- [x] 使用小批次、可重入的 Maintenance Cleanup 执行清理
+- [x] 验证 JobAttempt、Lease、JobRun 等外键删除顺序
+- [x] 并发运行两个 Cleanup Scanner，确认不会重复处理或长时间锁表
+- [x] 中途终止 Cleanup，再次启动并确认能够继续
+- [x] 检查 Cleanup 扫描数、删除数、跳过数、失败数和耗时指标
+- [x] 检查表大小、最老可清理记录年龄和预计清空时间
+- [x] 模拟 Cleanup 持续失败或表容量超过阈值
+- [x] 确认容量告警和 Cleanup Failure 告警触发
+- [x] 检查活跃 Job、未解决记录、业务数据和审计证据没有被误删
 
 ### PASS 条件
 
@@ -1771,12 +1771,36 @@ Cleanup 有批次上限、可重入、可中断恢复
 
 ### 必须产出的 Policy Matrix
 
-| 数据类型 | 默认动作 | 必须保护的状态 |
-|---|---|---|
-| Outbox / Inbox | 终结并超过 Cutoff 后清理或归档 | Pending、Processing、未确认 |
-| JobRun / JobAttempt / Lease | 按 Job 终态成组清理 | Running、Pending、Active Lease |
-| ProcessingAttempt / Reconciliation | 归档后按策略清理 | Unknown、Pending、ManualRequired |
-| AuditEvent / StateTransition | 默认保留或归档 | 合规和事故调查要求覆盖的数据 |
+| 数据类型 | Owner | 默认周期与动作 | 必须保护的状态 |
+|---|---|---|---|
+| Outbox / Inbox | Messaging Platform | 30 天；Sent/Failed、Processed/Failed 且无 Active Job 后直接清理 | Pending、Processing、Active Job、未确认 |
+| JobRun / JobAttempt / Lease / Checkpoint | Worker Platform | 30 天；Job 终态且无 Active Lease，按 Child→Parent 成组清理 | Running、Pending、Active Lease |
+| ProcessingAttempt | Provider Integration | 90 天；Succeeded/Failed 且业务终态，先写 online archive 再清理 | Unknown、Pending、非终态 Contribution |
+| Reconciliation | Provider Reliability / SRE | 90 天；已 Resolved 且业务终态，先归档再清理 | 未 Resolved、WaitNextCycle、ManualRequired、非终态 Contribution |
+| AuditEvent / StateTransition | Security / Compliance | 不直接删除；由合规归档策略管理 | 全部事故调查与合规证据 |
+| ProviderReference / Contribution | Business Owner | 不属于 operational cleanup | 全部业务事实与幂等映射 |
+| DeadLetter / OperatorAlert | SRE / Operations | Pending 永不自动清理；完成后的周期需单独审批 | Pending、未调查、未处置 |
+| OperationalHistoryArchive | Data Governance | online archive；外部归档与最终删除需独立批准 | 未完成外部归档或 legal hold |
+
+### 执行结果
+
+```text
+PASS（E2）— Exp15 1/1；全量 162/162
+初始：Managed Rows=73；Eligible=40；Protected=33；DB≈630784 bytes
+最老 Eligible≈120 天；batch=2；预计3轮/180秒（按1分钟调度）
+中断：BeforeCommit 强制终止，事务完整回滚，RowsChanged=0
+并发：Scanner A 持有 PostgreSQL advisory lock；Scanner B 约15ms跳过
+清理：3轮完成；Scanned=40；Deleted=40；Archived=10
+保护：Active Job、Pending Outbox、Processing Inbox、Pending/Unknown Attempt、
+      ManualRequired、7条业务数据、14条审计证据全部保留
+指标：Runs=6；Skipped=1；Failures=1；Alerts=2
+告警：CapacityWarning=1；CleanupFailure=1（带60分钟进程内冷却）
+Hosted：ScheduledMaintenance Enabled 后自动清理过期 Outbox
+全量稳定性修复：5个 Worker publish Docker 实验串行；Exp12 等待 Lease release
+```
+
+聚合实验报告：
+[`learning/phase-3/exp15-operational-history-retention.md`](phase-3/exp15-operational-history-retention.md)
 
 ---
 

@@ -23,9 +23,9 @@ using Xunit.Abstractions;
 namespace Reliant.Tests.Integration.Phase2.Exp12;
 
 [CollectionDefinition(
-    "Phase 2 Exp12 Visibility Heartbeat",
+    "Docker Worker Publish",
     DisableParallelization = true)]
-public sealed class Exp12VisibilityHeartbeatCollection
+public sealed class DockerWorkerPublishCollection
 {
 }
 
@@ -34,7 +34,7 @@ public sealed class Exp12VisibilityHeartbeatCollection
 [Trait("Dependency", "PostgreSQL")]
 [Trait("Dependency", "LocalStack")]
 [Trait("Dependency", "WorkerHost")]
-[Collection("Phase 2 Exp12 Visibility Heartbeat")]
+[Collection("Docker Worker Publish")]
 public sealed class SqsVisibilityHeartbeatDockerE2ETests(
     ITestOutputHelper output)
 {
@@ -294,7 +294,12 @@ public sealed class SqsVisibilityHeartbeatDockerE2ETests(
                             .IgnoreQueryFilters()
                             .CountAsync(x =>
                                 x.MessageId ==
-                                    seeded.MessageId.ToString()) == 1;
+                                    seeded.MessageId.ToString()) == 1 &&
+                        !await db.Leases
+                            .IgnoreQueryFilters()
+                            .AnyAsync(x =>
+                                x.JobRunId == seeded.MessageId &&
+                                x.IsActive);
                 },
                 TimeSpan.FromSeconds(60));
             var redeliveredAt = DateTime.UtcNow;

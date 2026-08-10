@@ -26,6 +26,7 @@ namespace Reliant.Tests.Integration.Phase2.Exp5;
 [Trait("Dependency", "DockerCli")]
 [Trait("Dependency", "PostgreSQL")]
 [Trait("Dependency", "LocalStack")]
+[Collection("Docker Worker Publish")]
 public sealed class LeaseExpiryDockerE2ETests(ITestOutputHelper output)
 {
     private const string WorkerRuntimeImage =
