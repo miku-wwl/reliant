@@ -1,6 +1,6 @@
 # Reliant - Current State
 
-> 最后更新：Phase 3 Experiment 4（Same SQS Message Redelivery）—
+> 最后更新：Phase 3 Experiment 5（Different MessageId, Same Contribution）—
 > Local Verified；Phase 3.1 CI baseline 仍为 Completed
 
 ## Phase 3.1 状态
@@ -20,7 +20,7 @@ CI evidence: docs/evidence/phase-3.1/ci-run.md
 Owner Experiments。最新本地全量结果：
 
 ```text
-164 passed, 0 failed, 0 skipped
+160 passed, 0 failed, 0 skipped
 ```
 
 新增代码 push 后需要重新取得 GitHub Actions CI evidence；原 146-test CI
@@ -59,6 +59,7 @@ Owner Experiments。最新本地全量结果：
 | Provider NotFound Safe Retry | Implemented | Verified | learning/phase-3/exp2-timeout-before-processing.md |
 | Provider Response Lost Recovery | Implemented | Verified | learning/phase-3/exp3-processed-response-lost.md |
 | Same SQS Message Redelivery | Implemented | Verified | learning/phase-3/exp4-same-sqs-message-redelivery.md |
+| Different MessageId Business Dedup | Implemented | Verified | learning/phase-3/exp5-different-message-id-same-contribution.md |
 | Optimistic Concurrency | Implemented | Verified | Integration Test: OptimisticConcurrency_ShouldPreventLostUpdate |
 | OpenTelemetry | Not Started | Not Started | - |
 | Metrics / Logs / Dashboard | Not Started | Not Started | - |
@@ -83,9 +84,9 @@ Owner Experiments。最新本地全量结果：
 
 - Unit Tests: 65
 - Architecture Tests: 5
-- PostgreSQL Integration Tests: 71
-- LocalStack Integration Tests: 31
+- PostgreSQL Integration Tests: 72
+- LocalStack Integration Tests: 27
 - HTTP API Integration Tests: 9
-- WorkerHost End-to-End Tests: 25
-- Integration Tests Total: 94
-- Total Tests: 164
+- WorkerHost End-to-End Tests: 21
+- Integration Tests Total: 90
+- Total Tests: 160

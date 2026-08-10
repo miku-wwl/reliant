@@ -251,7 +251,7 @@ public class FinalE2ETests
             // 3) A new logical message for the same Contribution is suppressed by
             //    terminal business-state protection and provider idempotency.
             //    (Same-physical-MessageId redelivery is covered separately by
-            //    DuplicateMessageE2ETests and CrashBeforeAckE2ETests.)
+            //    Phase3 Exp4; different-message business dedup by Exp5.)
             using (var db = CreateDbContext(fixture.PgConnectionString))
             {
                 var contribution = await db.Set<Contribution>().IgnoreQueryFilters().SingleAsync(c => c.Id == contributionId);

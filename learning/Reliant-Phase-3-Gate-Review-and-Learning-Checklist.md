@@ -1260,13 +1260,13 @@ Queue Send/Receive/Delete=1/2/1，Queue empty，DeadLetter=0
 
 ### 步骤
 
-- [ ] 完成一笔 Contribution
-- [ ] 创建新的 OutboxMessage
-- [ ] 使用新的 MessageId
-- [ ] Payload 指向相同 ContributionId
-- [ ] 观察 Worker 行为
-- [ ] 检查 Provider Operation
-- [ ] 检查 StateTransition
+- [x] 完成一笔 Contribution
+- [x] 创建新的 OutboxMessage
+- [x] 使用新的 MessageId
+- [x] Payload 指向相同 ContributionId
+- [x] 观察 Worker 行为
+- [x] 检查 Provider Operation
+- [x] 检查 StateTransition
 
 ### PASS 条件
 
@@ -1276,6 +1276,23 @@ ProviderReferenceCount 仍为 1
 Contribution 仍为 Succeeded
 无新的业务状态推进
 ```
+
+### 执行结果
+
+```text
+PASS（E2）
+Message A != Message B，两个 Payload 指向同一 ContributionId
+两个 Outbox=Sent、两个 Inbox=Processed、两个 JobRun=Succeeded
+第二条消息日志：idempotent ACK without submit
+Contribution 保持 Succeeded，StateTransition 保持 4
+ProcessingAttempt=1、ProviderReference=1、ProviderOperation=1
+Queue Send/Receive/Delete=2/2/2，Queue empty，DeadLetter=0
+生产代码修改：0
+测试聚合：删除旧 DuplicateMessageE2ETests 5项，由 Exp4+Exp5 两项综合测试替代
+```
+
+聚合实验报告：
+[`learning/phase-3/exp5-different-message-id-same-contribution.md`](phase-3/exp5-different-message-id-same-contribution.md)
 
 ---
 
