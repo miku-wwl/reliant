@@ -247,8 +247,8 @@ Attempt 的 retention 与告警仍属于后续生产准备策略。
    必须使用相同 fenced commit 边界。
 3. 历史 Pending/Abandoned Attempt 的 retention、容量指标和清理告警仍在 Phase 3
    生产准备实验中完成。
-4. Exp12 的 SQS Visibility Heartbeat 仍未实现；数据库 Lease Heartbeat 不能替代
-   Queue Visibility 续约。
+4. SQS Visibility Heartbeat 已由 Exp12 补完；本报告保留“数据库 Lease Heartbeat
+   不能替代 Queue Visibility 续约”作为机制边界，详见 Exp12 报告。
 
 ## 验证命令
 

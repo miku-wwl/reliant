@@ -134,7 +134,11 @@ public sealed class WorkerHostFixture : IAsyncLifetime
         int outboxRetryJitterMs = 250,
         int queueRequestTimeoutSeconds = 5,
         int queuePublishTimeoutSeconds = 5,
-        int queueMaxErrorRetry = 1)
+        int queueMaxErrorRetry = 1,
+        int leaseSeconds = 30,
+        int heartbeatIntervalMs = 10000,
+        int processingConcurrency = 10,
+        int providerSubmitDelayMs = 0)
     {
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(
             new HostApplicationBuilderSettings { Args = Array.Empty<string>() });
@@ -154,6 +158,8 @@ public sealed class WorkerHostFixture : IAsyncLifetime
                 queueMaxErrorRetry.ToString(),
             ["Provider:Mode"] = providerMode,
             ["Provider:Secret"] = "sandbox-secret-key",
+            ["Provider:SubmitDelayMs"] =
+                providerSubmitDelayMs.ToString(),
             ["Worker:Outbox:IntervalMs"] = "300",
             ["Worker:Outbox:RetryBaseMs"] =
                 outboxRetryBaseMs.ToString(),
@@ -163,7 +169,13 @@ public sealed class WorkerHostFixture : IAsyncLifetime
                 outboxRetryJitterMs.ToString(),
             ["Worker:Reconciliation:IntervalMs"] = "300",
             ["Worker:Maintenance:IntervalMs"] = "300",
-            ["Worker:VisibilityTimeoutSeconds"] = visibilityTimeoutSeconds.ToString()
+            ["Worker:VisibilityTimeoutSeconds"] =
+                visibilityTimeoutSeconds.ToString(),
+            ["Worker:LeaseSeconds"] = leaseSeconds.ToString(),
+            ["Worker:HeartbeatIntervalMs"] =
+                heartbeatIntervalMs.ToString(),
+            ["Worker:ProcessingConcurrency"] =
+                processingConcurrency.ToString()
         });
 
         builder.Services.AddReliantApplication();

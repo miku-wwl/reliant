@@ -914,19 +914,19 @@ Fencing Token 只能拒绝过期 Owner 的后续提交，不能撤销已经发�
 
 ### 步骤
 
-- [ ] Queue Adapter 提供可见性续约抽象，SQS 实现调用 ChangeMessageVisibility
-- [ ] 将 Visibility Timeout 设置为 5 秒
-- [ ] 启动一个至少运行 20 秒的可控长任务
-- [ ] 将 Heartbeat 间隔设置为 1 秒
-- [ ] 检查数据库 Lease ExpiresAt 持续向后移动
-- [ ] 检查 SQS 消息在健康处理期间没有提前重新出现
-- [ ] 检查 ApproximateReceiveCount 在健康期间保持为 1
-- [ ] 启动 Worker B，确认它不会提前进入业务处理路径
-- [ ] 强制终止 Worker A 或注入 Visibility 续约失败
-- [ ] 等待最后一次 Visibility Timeout 到期
-- [ ] 确认 Worker B 收到相同 MessageId 并最终完成
-- [ ] 检查续约失败、ReceiptHandle 失效和限流日志
-- [ ] 检查消息没有因无意义 Receive 次数过早进入 DLQ
+- [x] Queue Adapter 提供可见性续约抽象，SQS 实现调用 ChangeMessageVisibility
+- [x] 将 Visibility Timeout 设置为 5 秒
+- [x] 启动一个至少运行 20 秒的可控长任务
+- [x] 将 Heartbeat 间隔设置为 1 秒
+- [x] 检查数据库 Lease ExpiresAt 持续向后移动
+- [x] 检查 SQS 消息在健康处理期间没有提前重新出现
+- [x] 检查 ApproximateReceiveCount 在健康期间保持为 1
+- [x] 启动 Worker B，确认它不会提前进入业务处理路径
+- [x] 强制终止 Worker A 或注入 Visibility 续约失败
+- [x] 等待最后一次 Visibility Timeout 到期
+- [x] 确认 Worker B 收到相同 MessageId 并最终完成
+- [x] 检查续约失败、ReceiptHandle 失效和限流日志
+- [x] 检查消息没有因无意义 Receive 次数过早进入 DLQ
 
 ### PASS 条件
 
@@ -937,6 +937,25 @@ Worker 崩溃后消息仍可最终 Redelivery
 任务最终完成且业务副作用不重复
 Heartbeat 失败可观察且不会静默丢失消息
 ```
+
+### 执行结果
+
+```text
+PASS（E2）
+健康窗口：20秒，Visibility=5秒，Heartbeat=1秒
+Lease：20个 Heartbeat 样本，ExpiresAt 持续前移
+健康期：ApproximateReceiveCount=1，Worker B 未进入业务处理
+故障注入：真实 docker kill Worker A
+恢复：约5.6秒后 Worker B 收到同一 MessageId，ReceiveCount=2
+最终：Contribution/JobRun Succeeded、Inbox=1、Provider Effect=1
+Queue/DLQ：empty/empty，DeadLetter=0
+失败可观察：InvalidReceiptHandle=Permanent，RateLimited=Transient，停止 Heartbeat
+Phase 2 Exp1–Exp12：15/15 通过
+最终全量：161/161 通过
+```
+
+聚合实验报告：
+[`learning/phase-2/exp12-sqs-visibility-heartbeat.md`](phase-2/exp12-sqs-visibility-heartbeat.md)
 
 ---
 
@@ -998,7 +1017,7 @@ evidence/
 
 - [ ] 不向 Application 泄漏具体 SQS SDK
 - [ ] Receive / Complete / Abandon / DeadLetter 语义明确
-- [ ] Visibility Timeout 可配置
+- [x] Visibility Timeout 可配置（Exp12）
 - [ ] Message metadata 完整
 - [ ] Queue 异常有稳定分类
 - [ ] Phase 3 Provider 逻辑没有写入 Queue Adapter
@@ -1045,7 +1064,7 @@ evidence/
 - [x] Lease 原子获取
 - [x] Lease 有过期时间
 - [x] Heartbeat 可更新
-- [ ] Heartbeat 失败行为明确
+- [x] Heartbeat 失败行为明确（Exp12）
 - [x] Lease 过期可接管
 - [ ] Checkpoint 持久化
 - [x] Worker Crash 后恢复已验证
