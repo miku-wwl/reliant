@@ -1351,14 +1351,14 @@ JobAttempts=Failed,Succeeded
 
 分别发送：
 
-- [ ] 正确 HMAC
-- [ ] 错误 HMAC
-- [ ] 缺少 Signature
-- [ ] 缺少 Timestamp
-- [ ] 无法解析 Timestamp
-- [ ] 过期 Timestamp
-- [ ] 未来 Timestamp
-- [ ] 非 UTC Timestamp
+- [x] 正确 HMAC
+- [x] 错误 HMAC
+- [x] 缺少 Signature
+- [x] 缺少 Timestamp
+- [x] 无法解析 Timestamp
+- [x] 过期 Timestamp
+- [x] 未来 Timestamp
+- [x] 非 UTC Timestamp
 
 ### PASS 条件
 
@@ -1369,6 +1369,22 @@ JobAttempts=Failed,Succeeded
 无效请求不修改 Contribution
 无效请求不写 StateTransition
 ```
+
+### 执行结果
+
+```text
+PASS（E2）— 8/8
+有效 HMAC：HTTP 200、Contribution=Succeeded、Inbox=1、StateTransition=1
+错误 HMAC：HTTP 401、业务零修改
+缺少 Signature/Timestamp：HTTP 401、业务零修改
+无法解析、过期、未来、非 UTC Timestamp：HTTP 401、业务零修改
+每个非法用例：Contribution=Processing、Inbox=0、StateTransition=0、Orphan=0
+生产代码修改：0
+测试整理：旧 HTTP 安全测试迁入 Exp7；Duplicate Callback 用例移交 Exp8
+```
+
+聚合实验报告：
+[`learning/phase-3/exp7-callback-security.md`](phase-3/exp7-callback-security.md)
 
 ---
 

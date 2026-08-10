@@ -10,20 +10,26 @@ using Reliant.Tests.Integration.Fixtures;
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using Xunit.Abstractions;
 
-namespace Reliant.Tests.Integration;
+namespace Reliant.Tests.Integration.Phase3.Exp7;
 
 [Trait("Category", "Integration")]
+[Trait("Dependency", "PostgreSQL")]
 [Trait("Dependency", "HttpApi")]
 public class CallbackSecurityHttpTests : IClassFixture<PostgreSqlFixture>, IDisposable
 {
     private const string Secret = "test-secret-key";
     private readonly PostgreSqlFixture _fixture;
     private readonly WebApplicationFactory<Program> _factory;
+    private readonly ITestOutputHelper _output;
 
-    public CallbackSecurityHttpTests(PostgreSqlFixture fixture)
+    public CallbackSecurityHttpTests(
+        PostgreSqlFixture fixture,
+        ITestOutputHelper output)
     {
         _fixture = fixture;
+        _output = output;
         _factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
             {
@@ -120,6 +126,44 @@ public class CallbackSecurityHttpTests : IClassFixture<PostgreSqlFixture>, IDisp
         });
     }
 
+    private async Task AssertRejectedWithoutMutationAsync(
+        Guid contributionId,
+        string eventId,
+        HttpResponseMessage response,
+        string scenario)
+    {
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+
+        await using var db = CreateDbContext();
+        var contribution = await db.Set<Contribution>()
+            .IgnoreQueryFilters()
+            .SingleAsync(c => c.Id == contributionId);
+        Assert.Equal(ContributionState.Processing, contribution.State);
+        Assert.Equal(
+            0,
+            await db.Set<InboxMessage>()
+                .IgnoreQueryFilters()
+                .CountAsync(m =>
+                    m.MessageId == $"callback-{eventId}"));
+        Assert.Equal(
+            0,
+            await db.Set<StateTransition>()
+                .IgnoreQueryFilters()
+                .CountAsync(t =>
+                    t.ContributionId == contributionId));
+        Assert.Equal(
+            0,
+            await db.Set<OrphanProviderCallback>()
+                .IgnoreQueryFilters()
+                .CountAsync(o => o.EventId == eventId));
+
+        _output.WriteLine(
+            "REJECTED | Scenario={0} | Status=401 | " +
+            "Contribution=Processing | Inbox=0 | " +
+            "StateTransition=0 | Orphan=0",
+            scenario);
+    }
+
     [Fact]
     public async Task ValidSignature_ShouldReturn200()
     {
@@ -135,129 +179,152 @@ public class CallbackSecurityHttpTests : IClassFixture<PostgreSqlFixture>, IDisp
         await using var db = CreateDbContext();
         var contribution = await db.Set<Contribution>().IgnoreQueryFilters().SingleAsync(c => c.Id == contributionId);
         Assert.Equal(ContributionState.Succeeded, contribution.State);
+        Assert.Equal(
+            1,
+            await db.Set<InboxMessage>()
+                .IgnoreQueryFilters()
+                .CountAsync(m =>
+                    m.MessageId == "callback-http-evt-1"));
+        Assert.Equal(
+            1,
+            await db.Set<StateTransition>()
+                .IgnoreQueryFilters()
+                .CountAsync(t =>
+                    t.ContributionId == contributionId &&
+                    t.ToState == ContributionState.Succeeded));
+        _output.WriteLine(
+            "ACCEPTED | Scenario=ValidHmac | Status=200 | " +
+            "Contribution=Succeeded | Inbox=1 | StateTransition=1");
     }
 
     [Fact]
     public async Task MissingSignature_ShouldReturn401()
     {
-        var payload = BuildPayload("http-evt-2", "succeeded");
+        var (_, contributionId, reference) =
+            await SeedContributionWithReferenceAsync();
+        const string eventId = "http-evt-2";
+        var payload = BuildPayload(eventId, "succeeded", reference);
         var timestamp = DateTime.UtcNow.ToString("O");
 
         var response = await PostCallbackAsync(null, timestamp, payload);
 
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        await AssertRejectedWithoutMutationAsync(
+            contributionId,
+            eventId,
+            response,
+            "MissingSignature");
     }
 
     [Fact]
     public async Task MissingTimestamp_ShouldReturn401()
     {
-        var payload = BuildPayload("http-evt-3", "succeeded");
+        var (_, contributionId, reference) =
+            await SeedContributionWithReferenceAsync();
+        const string eventId = "http-evt-3";
+        var payload = BuildPayload(eventId, "succeeded", reference);
         var signature = ComputeSignature("", payload);
 
         var response = await PostCallbackAsync(signature, null, payload);
 
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        await AssertRejectedWithoutMutationAsync(
+            contributionId,
+            eventId,
+            response,
+            "MissingTimestamp");
     }
 
     [Fact]
     public async Task InvalidSignature_ShouldReturn401_WithoutStateChange()
     {
         var (_, contributionId, reference) = await SeedContributionWithReferenceAsync();
-        var payload = BuildPayload("http-evt-4", "succeeded", reference);
+        const string eventId = "http-evt-4";
+        var payload = BuildPayload(eventId, "succeeded", reference);
         var timestamp = DateTime.UtcNow.ToString("O");
         var badSignature = "deadbeef" + ComputeSignature(timestamp, payload)[..8];
 
         var response = await PostCallbackAsync(badSignature, timestamp, payload);
 
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-
-        await using var db = CreateDbContext();
-        var contribution = await db.Set<Contribution>().IgnoreQueryFilters().SingleAsync(c => c.Id == contributionId);
-        Assert.Equal(ContributionState.Processing, contribution.State);
-
-        var inbox = await db.Set<InboxMessage>().IgnoreQueryFilters()
-            .Where(m => m.MessageId == "callback-http-evt-4").ToListAsync();
-        Assert.Empty(inbox);
-
-        var orphan = await db.Set<OrphanProviderCallback>().IgnoreQueryFilters()
-            .Where(o => o.EventId == "http-evt-4").ToListAsync();
-        Assert.Empty(orphan);
+        await AssertRejectedWithoutMutationAsync(
+            contributionId,
+            eventId,
+            response,
+            "InvalidSignature");
     }
 
     [Fact]
     public async Task InvalidTimestampFormat_ShouldReturn401()
     {
-        var payload = BuildPayload("http-evt-5", "succeeded");
+        var (_, contributionId, reference) =
+            await SeedContributionWithReferenceAsync();
+        const string eventId = "http-evt-5";
+        var payload = BuildPayload(eventId, "succeeded", reference);
         var signature = ComputeSignature("not-a-timestamp", payload);
 
         var response = await PostCallbackAsync(signature, "not-a-timestamp", payload);
 
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        await AssertRejectedWithoutMutationAsync(
+            contributionId,
+            eventId,
+            response,
+            "InvalidTimestampFormat");
     }
 
     [Fact]
     public async Task ExpiredTimestamp_ShouldReturn401()
     {
-        var payload = BuildPayload("http-evt-6", "succeeded");
+        var (_, contributionId, reference) =
+            await SeedContributionWithReferenceAsync();
+        const string eventId = "http-evt-6";
+        var payload = BuildPayload(eventId, "succeeded", reference);
         var oldTimestamp = DateTime.UtcNow.AddMinutes(-10).ToString("O");
         var signature = ComputeSignature(oldTimestamp, payload);
 
         var response = await PostCallbackAsync(signature, oldTimestamp, payload);
 
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        await AssertRejectedWithoutMutationAsync(
+            contributionId,
+            eventId,
+            response,
+            "ExpiredTimestamp");
     }
 
     [Fact]
     public async Task FutureTimestampOutsideClockSkew_ShouldReturn401()
     {
-        var payload = BuildPayload("http-evt-7", "succeeded");
+        var (_, contributionId, reference) =
+            await SeedContributionWithReferenceAsync();
+        const string eventId = "http-evt-7";
+        var payload = BuildPayload(eventId, "succeeded", reference);
         var futureTimestamp = DateTime.UtcNow.AddMinutes(10).ToString("O");
         var signature = ComputeSignature(futureTimestamp, payload);
 
         var response = await PostCallbackAsync(signature, futureTimestamp, payload);
 
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        await AssertRejectedWithoutMutationAsync(
+            contributionId,
+            eventId,
+            response,
+            "FutureTimestamp");
     }
 
     [Fact]
     public async Task NonUtcTimestamp_ShouldBeRejected()
     {
-        var payload = BuildPayload("http-evt-8", "succeeded");
+        var (_, contributionId, reference) =
+            await SeedContributionWithReferenceAsync();
+        const string eventId = "http-evt-8";
+        var payload = BuildPayload(eventId, "succeeded", reference);
         // A non-UTC offset (+08:00) must be rejected even with a valid signature.
         var localTimestamp = DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(8)).ToString("O");
         var signature = ComputeSignature(localTimestamp, payload);
 
         var response = await PostCallbackAsync(signature, localTimestamp, payload);
 
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-    }
-
-    [Fact]
-    public async Task ValidSignedPayload_ShouldReachCallbackHandler_AndApplyStateOnce()
-    {
-        var (_, contributionId, reference) = await SeedContributionWithReferenceAsync();
-        var payload = BuildPayload("http-evt-9", "succeeded", reference);
-        var timestamp = DateTime.UtcNow.ToString("O");
-        var signature = ComputeSignature(timestamp, payload);
-
-        var first = await PostCallbackAsync(signature, timestamp, payload);
-        var duplicate = await PostCallbackAsync(signature, timestamp, payload);
-
-        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
-        Assert.Equal(HttpStatusCode.OK, duplicate.StatusCode);
-
-        await using var db = CreateDbContext();
-        var contribution = await db.Set<Contribution>().IgnoreQueryFilters().SingleAsync(c => c.Id == contributionId);
-        Assert.Equal(ContributionState.Succeeded, contribution.State);
-
-        var inboxes = await db.Set<InboxMessage>().IgnoreQueryFilters()
-            .Where(m => m.MessageId == "callback-http-evt-9").ToListAsync();
-        Assert.Single(inboxes);
-
-        // Duplicate terminal confirmation creates no additional state change.
-        var succeededTransitions = await db.Set<StateTransition>().IgnoreQueryFilters()
-            .Where(t => t.ContributionId == contributionId && t.ToState == ContributionState.Succeeded).ToListAsync();
-        Assert.Single(succeededTransitions);
+        await AssertRejectedWithoutMutationAsync(
+            contributionId,
+            eventId,
+            response,
+            "NonUtcTimestamp");
     }
 
     public void Dispose()

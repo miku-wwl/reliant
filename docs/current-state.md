@@ -1,6 +1,6 @@
 # Reliant - Current State
 
-> 最后更新：Phase 3 Experiment 6（Worker Crash after Provider Processed）—
+> 最后更新：Phase 3 Experiment 7（Callback Security）—
 > Local Verified；Phase 3.1 CI baseline 仍为 Completed
 
 ## Phase 3.1 状态
@@ -20,7 +20,7 @@ CI evidence: docs/evidence/phase-3.1/ci-run.md
 Owner Experiments。最新本地全量结果：
 
 ```text
-160 passed, 0 failed, 0 skipped
+159 passed, 0 failed, 0 skipped
 ```
 
 新增代码 push 后需要重新取得 GitHub Actions CI evidence；原 146-test CI
@@ -61,6 +61,7 @@ Owner Experiments。最新本地全量结果：
 | Same SQS Message Redelivery | Implemented | Verified | learning/phase-3/exp4-same-sqs-message-redelivery.md |
 | Different MessageId Business Dedup | Implemented | Verified | learning/phase-3/exp5-different-message-id-same-contribution.md |
 | Worker Crash after Provider Processed | Implemented | Verified | learning/phase-3/exp6-worker-crash-after-provider-processed.md |
+| Callback HMAC / Replay-window Security | Implemented | Verified | learning/phase-3/exp7-callback-security.md |
 | Optimistic Concurrency | Implemented | Verified | Integration Test: OptimisticConcurrency_ShouldPreventLostUpdate |
 | OpenTelemetry | Not Started | Not Started | - |
 | Metrics / Logs / Dashboard | Not Started | Not Started | - |
@@ -85,9 +86,9 @@ Owner Experiments。最新本地全量结果：
 
 - Unit Tests: 65
 - Architecture Tests: 5
-- PostgreSQL Integration Tests: 72
+- PostgreSQL Integration Tests: 80
 - LocalStack Integration Tests: 28
-- HTTP API Integration Tests: 9
+- HTTP API Integration Tests: 8
 - WorkerHost End-to-End Tests: 22
-- Integration Tests Total: 90
-- Total Tests: 160
+- Integration Tests Total: 89
+- Total Tests: 159
