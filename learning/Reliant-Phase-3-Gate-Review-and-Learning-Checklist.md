@@ -1640,14 +1640,14 @@ Safe Retry 达到最大次数后，系统停止自动执行，并进入可审计
 
 ### 步骤
 
-- [ ] Provider 持续返回明确可重试结果
-- [ ] 记录每次 RetryCount
-- [ ] 记录 NextRetryAt
-- [ ] 检查 Backoff / Jitter
-- [ ] 等待达到最大次数
-- [ ] 检查 Contribution 状态
-- [ ] 检查 DeadLetterRecord
-- [ ] 检查 Operator Alert
+- [x] Provider 持续返回明确可重试结果
+- [x] 记录每次 RetryCount
+- [x] 记录 NextRetryAt
+- [x] 检查 Backoff / Jitter
+- [x] 等待达到最大次数
+- [x] 检查 Contribution 状态
+- [x] 检查 DeadLetterRecord
+- [x] 检查 Operator Alert
 
 ### PASS 条件
 
@@ -1657,6 +1657,23 @@ Retry 有明确上限
 最终状态明确
 DeadLetter 可审计
 ```
+
+### 执行结果
+
+```text
+PASS（E2）— 1/1
+Provider Mode=RateLimited（持续 retryable 429）
+ProcessingAttempt=5、AttemptNumber=1..5、RetryCount=5
+Backoff/Jitter：约 1.8s、2.2s、5.0s、8.6s（1/2/4/8s + 0–1s）
+最终：Contribution=Failed、NextRetryAt=null
+DeadLetter=1/ContributionRetryExhausted、OperatorAlert=1
+稳定性等待3秒：Attempt 5->5、RetryOutbox 4->4、无继续 Retry
+生产代码修改：0
+测试聚合：Phase2 Exp7 与 Phase3 Exp13 共享单一 scenario 实现，无大段复制
+```
+
+聚合实验报告：
+[`learning/phase-3/exp13-retry-exhaustion.md`](phase-3/exp13-retry-exhaustion.md)
 
 ---
 

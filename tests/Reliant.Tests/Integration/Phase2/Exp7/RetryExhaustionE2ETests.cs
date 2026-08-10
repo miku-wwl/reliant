@@ -23,7 +23,11 @@ public sealed class RetryExhaustionE2ETests(ITestOutputHelper output)
     private const int MaxAttempts = 5;
 
     [Fact]
-    public async Task PersistentTransientFailure_ShouldExhaustRetryBudget_AndStop()
+    public Task PersistentTransientFailure_ShouldExhaustRetryBudget_AndStop()
+        => RunScenarioAsync(output);
+
+    internal static async Task RunScenarioAsync(
+        ITestOutputHelper output)
     {
         var startedAt = DateTime.UtcNow;
         var stopwatch = Stopwatch.StartNew();
