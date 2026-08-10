@@ -1,6 +1,6 @@
 # Reliant - Current State
 
-> 最后更新：Phase 3 Experiment 1（Happy Path with Provider Evidence）—
+> 最后更新：Phase 3 Experiment 2（Timeout Before Processing）—
 > Local Verified；Phase 3.1 CI baseline 仍为 Completed
 
 ## Phase 3.1 状态
@@ -20,7 +20,7 @@ CI evidence: docs/evidence/phase-3.1/ci-run.md
 Owner Experiments。最新本地全量结果：
 
 ```text
-162 passed, 0 failed, 0 skipped
+163 passed, 0 failed, 0 skipped
 ```
 
 新增代码 push 后需要重新取得 GitHub Actions CI evidence；原 146-test CI
@@ -56,6 +56,7 @@ Owner Experiments。最新本地全量结果：
 | Stale Owner Fencing Token | Implemented | Verified | learning/phase-2/exp11-stale-owner-fencing.md |
 | SQS Visibility + Lease Heartbeat | Implemented | Verified | learning/phase-2/exp12-sqs-visibility-heartbeat.md |
 | Provider Happy Path Evidence | Implemented | Verified | learning/phase-3/exp1-happy-path-provider-evidence.md |
+| Provider NotFound Safe Retry | Implemented | Verified | learning/phase-3/exp2-timeout-before-processing.md |
 | Optimistic Concurrency | Implemented | Verified | Integration Test: OptimisticConcurrency_ShouldPreventLostUpdate |
 | OpenTelemetry | Not Started | Not Started | - |
 | Metrics / Logs / Dashboard | Not Started | Not Started | - |
@@ -80,9 +81,9 @@ Owner Experiments。最新本地全量结果：
 
 - Unit Tests: 65
 - Architecture Tests: 5
-- PostgreSQL Integration Tests: 68
-- LocalStack Integration Tests: 29
+- PostgreSQL Integration Tests: 69
+- LocalStack Integration Tests: 30
 - HTTP API Integration Tests: 9
-- WorkerHost End-to-End Tests: 23
-- Integration Tests Total: 92
-- Total Tests: 162
+- WorkerHost End-to-End Tests: 24
+- Integration Tests Total: 93
+- Total Tests: 163

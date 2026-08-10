@@ -1117,17 +1117,17 @@ Provider 未处理时，系统不会在第一次 Timeout 后盲目 Retry，而�
 
 ### 步骤
 
-- [ ] Provider Mode 设置为 `TimeoutBeforeProcessing`
-- [ ] 创建 Contribution
-- [ ] 等待进入 ReconciliationPending
-- [ ] 检查 ProviderOperationCount
-- [ ] 执行 Reconciliation
-- [ ] 确认 Query 返回 NotFound
-- [ ] 确认进入 RetryPending
-- [ ] 等待 Scheduler 到期
-- [ ] Provider 切换 Success
-- [ ] 等待最终 Succeeded
-- [ ] 对比两次 Attempt 的 Provider Key
+- [x] Provider Mode 设置为 `TimeoutBeforeProcessing`
+- [x] 创建 Contribution
+- [x] 等待进入 ReconciliationPending
+- [x] 检查 ProviderOperationCount
+- [x] 执行 Reconciliation
+- [x] 确认 Query 返回 NotFound
+- [x] 确认进入 RetryPending
+- [x] 等待 Scheduler 到期
+- [x] Provider 切换 Success
+- [x] 等待最终 Succeeded
+- [x] 对比两次 Attempt 的 Provider Key
 
 ### PASS 条件
 
@@ -1139,6 +1139,22 @@ NotFound 后才 Retry
 最终 ProviderOperationCount == 1
 最终 Succeeded
 ```
+
+### 执行结果
+
+```text
+PASS（E2）
+Reconciliation 前：Attempt=1/Unknown/Timeout、ProviderOperation=0
+Reconciliation 前：RetryCount=0、NextRetryAt=null、RetryOutbox=0
+Query by stable key：ProviderState=NotFound、Resolution=SafeRetry
+最终：Contribution=Succeeded、Attempts=2、Distinct Provider Key=1
+最终：ProviderOperation=1、ProviderReference=1、RetryOutbox=1
+Queue Send/Receive/Delete=2/2/2，Queue empty，DeadLetter=0
+生产代码修改：0
+```
+
+聚合实验报告：
+[`learning/phase-3/exp2-timeout-before-processing.md`](phase-3/exp2-timeout-before-processing.md)
 
 ---
 
