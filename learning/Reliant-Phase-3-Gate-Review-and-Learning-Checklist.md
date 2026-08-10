@@ -1486,14 +1486,14 @@ Worker：真实 Reload 看到 Succeeded，新增 Succeeded Transition=0
 
 ### 步骤
 
-- [ ] 准备 ReconciliationPending Contribution
-- [ ] 启动两个独立 DbContext / Scope
-- [ ] 同时执行 Reconcile
-- [ ] 检查 StateTransition
-- [ ] 检查 ReconciliationRecord
-- [ ] 检查 Retry Schedule
-- [ ] 检查 ProviderReference
-- [ ] 检查异常
+- [x] 准备 ReconciliationPending Contribution
+- [x] 启动两个独立 DbContext / Scope
+- [x] 同时执行 Reconcile
+- [x] 检查 StateTransition
+- [x] 检查 ReconciliationRecord
+- [x] 检查 Retry Schedule
+- [x] 检查 ProviderReference
+- [x] 检查异常
 
 ### PASS 条件
 
@@ -1504,6 +1504,21 @@ Worker：真实 Reload 看到 Succeeded，新增 Succeeded Transition=0
 无非法状态跳转
 另一个执行者安全退出
 ```
+
+### 执行结果
+
+```text
+PASS（E2）— 1/1，聚合2个并发场景
+SafeRetry：Provider Query=2、Transition=1、Record=1、NextRetryAt=1
+Succeeded：Provider Query=2、Transition=1、Record=1、ProviderReference=1
+每个场景：winner=业务结果，loser=Concurrent reconciliation already applied
+每个场景：Contribution Version=1、未处理异常=0、非法状态跳转=0
+生产代码修改：0
+测试聚合：删除1条非确定性旧用例，替换为1条双场景确定性屏障测试
+```
+
+聚合实验报告：
+[`learning/phase-3/exp10-concurrent-reconciliation.md`](phase-3/exp10-concurrent-reconciliation.md)
 
 ---
 

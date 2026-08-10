@@ -1,6 +1,6 @@
 # Reliant - Current State
 
-> 最后更新：Phase 3 Experiment 9（Callback Before Submit Response）—
+> 最后更新：Phase 3 Experiment 10（Concurrent Reconciliation）—
 > Local Verified；Phase 3.1 CI baseline 仍为 Completed
 
 ## Phase 3.1 状态
@@ -64,6 +64,7 @@ Owner Experiments。最新本地全量结果：
 | Callback HMAC / Replay-window Security | Implemented | Verified | learning/phase-3/exp7-callback-security.md |
 | Duplicate Callback Idempotency | Implemented | Verified | learning/phase-3/exp8-duplicate-callback.md |
 | Callback-before-response Lost-update Protection | Implemented | Verified | learning/phase-3/exp9-callback-before-submit-response.md |
+| Concurrent Reconciliation Single-winner | Implemented | Verified | learning/phase-3/exp10-concurrent-reconciliation.md |
 | Optimistic Concurrency | Implemented | Verified | Integration Test: OptimisticConcurrency_ShouldPreventLostUpdate |
 | OpenTelemetry | Not Started | Not Started | - |
 | Metrics / Logs / Dashboard | Not Started | Not Started | - |
