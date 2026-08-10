@@ -181,6 +181,13 @@ public class SubmitToProviderHandler(
                 ct);
             return new ProviderSubmissionResult(AttemptStatus.Unknown, null, result.ErrorCategory, result.ErrorMessage, ProviderSubmissionDisposition.Unknown);
         }
+        catch (InjectedWorkerCrashException)
+        {
+            // Fault injection represents loss of the worker execution, not a
+            // provider failure. Let the worker leave the queue message unacked
+            // so a later delivery can recover with the same provider key.
+            throw;
+        }
         catch (StaleJobOwnerException)
         {
             throw;

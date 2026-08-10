@@ -14,15 +14,17 @@ using Reliant.Infrastructure.Provider;
 using Reliant.Tests.Integration.Fixtures;
 using Reliant.Tests.TestHelpers;
 
-namespace Reliant.Tests.Integration;
+namespace Reliant.Tests.Integration.Phase3.Exp6;
 
 [Trait("Category", "Integration")]
 [Trait("Dependency", "PostgreSQL")]
-public class CrashRecoveryTests : IClassFixture<PostgreSqlFixture>
+public class ProviderCrashRecoveryIntegrationTests :
+    IClassFixture<PostgreSqlFixture>
 {
     private readonly PostgreSqlFixture _fixture;
 
-    public CrashRecoveryTests(PostgreSqlFixture fixture)
+    public ProviderCrashRecoveryIntegrationTests(
+        PostgreSqlFixture fixture)
     {
         _fixture = fixture;
     }
@@ -192,53 +194,4 @@ public class CrashRecoveryTests : IClassFixture<PostgreSqlFixture>
         TenantFilterAccessor.Clear();
     }
 
-    [Fact]
-    public async Task DuplicateInboxDelivery_ShouldBeDeduplicated()
-    {
-        var (orgId, contributionId) = await SeedDataAsync();
-        var sp = BuildServices();
-
-        using var scope = sp.CreateScope();
-        SetTenant(scope.ServiceProvider, orgId);
-
-        var db = scope.ServiceProvider.GetRequiredService<ReliantDbContext>();
-        var inboxRepo = scope.ServiceProvider.GetRequiredService<IInboxRepository>();
-        var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
-
-        await inboxRepo.AddAsync(new InboxMessage
-        {
-            Id = Guid.NewGuid(),
-            MessageId = "msg-dup-1",
-            OrganizationId = orgId,
-            MessageType = "ContributionCreated",
-            HandlerName = "ProcessingHandler",
-            HandlerVersion = "1.0",
-            ProcessedAt = DateTime.UtcNow,
-            Status = InboxStatus.Processed
-        });
-        await unitOfWork.SaveChangesAsync();
-
-        // A redelivered duplicate has the same MessageId -> DB unique constraint
-        // rejects it, so the second delivery is treated as already processed.
-        await inboxRepo.AddAsync(new InboxMessage
-        {
-            Id = Guid.NewGuid(),
-            MessageId = "msg-dup-1",
-            OrganizationId = orgId,
-            MessageType = "ContributionCreated",
-            HandlerName = "ProcessingHandler",
-            HandlerVersion = "1.0",
-            ProcessedAt = DateTime.UtcNow,
-            Status = InboxStatus.Processed
-        });
-
-        var saved = await unitOfWork.TrySaveChangesAsync();
-        Assert.False(saved);
-
-        var count = await db.Set<InboxMessage>().IgnoreQueryFilters()
-            .CountAsync(m => m.MessageId == "msg-dup-1");
-        Assert.Equal(1, count);
-
-        TenantFilterAccessor.Clear();
-    }
 }

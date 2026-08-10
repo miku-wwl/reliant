@@ -1304,14 +1304,14 @@ Provider 已经处理成功，但 Worker 在处理响应前崩溃时，重投使
 
 ### 步骤
 
-- [ ] 开启 `AfterProviderProcessed` 或等价 Fault
-- [ ] 创建 Contribution
-- [ ] 确认 ProviderOperation 已存在
-- [ ] 强制 Worker 崩溃
-- [ ] 等待消息重投
-- [ ] 检查第二次 Submit 的 Key
-- [ ] 检查 Provider 返回原结果
-- [ ] 检查最终状态
+- [x] 开启 `AfterProviderProcessed` 或等价 Fault
+- [x] 创建 Contribution
+- [x] 确认 ProviderOperation 已存在
+- [x] 强制 Worker 崩溃
+- [x] 等待消息重投
+- [x] 检查第二次 Submit 的 Key
+- [x] 检查 Provider 返回原结果
+- [x] 检查最终状态
 
 ### PASS 条件
 
@@ -1321,6 +1321,23 @@ ProviderOperationCount == 1
 没有重复 ProviderReference
 重投使用相同 Key
 ```
+
+### 执行结果
+
+```text
+PASS（E2）
+AfterProviderProcessed：Attempt1=Pending、ProviderOperation=1
+崩溃边界：ProviderReference=0、Inbox=0、QueueDelete=0
+Redelivery：ReceiveCount=2、Attempts=2、Distinct Provider Key=1
+Provider 幂等回放：Attempt2=Succeeded、ProviderReference=1、Operation 仍为 1
+最终：Contribution/JobRun=Succeeded、Inbox=1、Queue empty、DeadLetter=0
+JobAttempts=Failed,Succeeded
+生产代码修改：2处小范围故障注入协议修复；业务状态机和 Migration 修改为 0
+测试整理：旧 CrashRecoveryTests 迁入 Exp6，删除与 Exp4 重复的 Inbox 测试
+```
+
+聚合实验报告：
+[`learning/phase-3/exp6-worker-crash-after-provider-processed.md`](phase-3/exp6-worker-crash-after-provider-processed.md)
 
 ---
 

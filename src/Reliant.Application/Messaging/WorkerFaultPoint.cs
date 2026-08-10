@@ -16,3 +16,18 @@ public enum WorkerFaultPoint
     AfterInboxCommitted,
     BeforeMessageAck
 }
+
+/// <summary>
+/// Test/development fault signal that represents abrupt loss of the current
+/// worker execution. Provider exception classification must not translate this
+/// signal into a provider Timeout or Unknown response.
+/// </summary>
+public sealed class InjectedWorkerCrashException(
+    WorkerFaultPoint faultPoint,
+    string contributionId)
+    : Exception(
+        $"Injected worker crash at {faultPoint} for {contributionId}")
+{
+    public WorkerFaultPoint FaultPoint { get; } = faultPoint;
+    public string ContributionId { get; } = contributionId;
+}
