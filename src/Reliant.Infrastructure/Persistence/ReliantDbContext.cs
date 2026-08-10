@@ -26,6 +26,8 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
     public DbSet<Lease> Leases => Set<Lease>();
     public DbSet<Checkpoint> Checkpoints => Set<Checkpoint>();
     public DbSet<DeadLetterRecord> DeadLetterRecords => Set<DeadLetterRecord>();
+    public DbSet<OperationalHistoryArchive> OperationalHistoryArchives =>
+        Set<OperationalHistoryArchive>();
 
     /// <summary>
     /// Current tenant org id. Referenced by the global query filters as an INSTANCE
@@ -150,6 +152,7 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.HandlerVersion).HasMaxLength(32).IsRequired();
             e.Property(x => x.Status).HasConversion<int>();
             e.HasIndex(x => x.MessageId).IsUnique();
+            e.HasIndex(x => new { x.Status, x.ProcessedAt });
             e.HasQueryFilter(x => x.OrganizationId == TenantOrganizationId);
         });
 
@@ -183,6 +186,7 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.FencingToken);
             e.Property(x => x.Version).IsConcurrencyToken();
             e.HasIndex(x => new { x.OrganizationId, x.Status });
+            e.HasIndex(x => new { x.Status, x.CompletedAt });
             e.HasIndex(x => x.MessageId).IsUnique();
             e.HasOne<JobDefinition>()
                 .WithMany()
@@ -263,6 +267,7 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.RequestPayload).IsRequired();
             e.HasIndex(x => new { x.ContributionId, x.AttemptNumber }).IsUnique();
             e.HasIndex(x => new { x.ProviderName, x.ProviderIdempotencyKey });
+            e.HasIndex(x => new { x.Status, x.CompletedAt });
             e.HasQueryFilter(x => false);
         });
 
@@ -287,6 +292,7 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.Resolution).HasMaxLength(256).IsRequired();
             e.Property(x => x.ResolvedBy).HasMaxLength(128);
             e.HasIndex(x => x.ContributionId);
+            e.HasIndex(x => new { x.Resolution, x.ResolvedAt });
             e.HasQueryFilter(x => false);
         });
 
@@ -301,6 +307,24 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.Payload).IsRequired();
             e.Property(x => x.Reason).HasMaxLength(500).IsRequired();
             e.HasIndex(x => new { x.ProviderName, x.EventId }).IsUnique();
+            e.HasQueryFilter(x => false);
+        });
+
+        modelBuilder.Entity<OperationalHistoryArchive>(e =>
+        {
+            e.ToTable("operational_history_archives");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.SourceType)
+                .HasMaxLength(64)
+                .IsRequired();
+            e.Property(x => x.Payload).IsRequired();
+            e.HasIndex(x => new { x.SourceType, x.SourceId })
+                .IsUnique();
+            e.HasIndex(x => new
+            {
+                x.OrganizationId,
+                x.ArchivedAt
+            });
             e.HasQueryFilter(x => false);
         });
     }

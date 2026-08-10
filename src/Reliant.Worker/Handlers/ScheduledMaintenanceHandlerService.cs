@@ -16,6 +16,9 @@ public class ScheduledMaintenanceHandlerService(
 {
     private readonly TimeSpan _interval = TimeSpan.FromMilliseconds(
         configuration.GetValue<int?>("Worker:Maintenance:IntervalMs") ?? 30000);
+    private readonly OperationalHistoryRetentionOptions _cleanupOptions =
+        OperationalHistoryRetentionOptions.From(configuration);
+    private DateTimeOffset _nextCleanupAt = DateTimeOffset.MinValue;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -85,6 +88,17 @@ public class ScheduledMaintenanceHandlerService(
                 }
 
                 await retryScheduler.DispatchDueRetriesAsync(stoppingToken);
+
+                if (_cleanupOptions.Enabled &&
+                    timeProvider.GetUtcNow() >= _nextCleanupAt)
+                {
+                    _nextCleanupAt = timeProvider.GetUtcNow() +
+                        _cleanupOptions.CleanupInterval;
+                    var cleanup = scope.ServiceProvider
+                        .GetRequiredService<
+                            OperationalHistoryCleanupService>();
+                    await cleanup.RunBatchAsync(stoppingToken);
+                }
             }
             catch (Exception ex)
             {

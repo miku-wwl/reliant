@@ -14,6 +14,11 @@ builder.Services.AddReliantInfrastructure(builder.Configuration);
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<IRetryScheduler, RetrySchedulerService>();
+builder.Services.AddSingleton<OperationalHistoryTelemetry>();
+builder.Services.AddSingleton<
+    IOperationalHistoryCleanupFaultInjector,
+    NoopOperationalHistoryCleanupFaultInjector>();
+builder.Services.AddScoped<OperationalHistoryCleanupService>();
 
 builder.Services.AddHostedService<OutboxPublisherService>();
 builder.Services.AddHostedService<ProcessingHandlerService>();
