@@ -1396,12 +1396,12 @@ PASS（E2）— 8/8
 
 ### 步骤
 
-- [ ] 使用同一个 EventId 连续发送两次
-- [ ] 使用同一个 EventId 并发发送两次
-- [ ] 检查 HTTP 响应
-- [ ] 检查 Callback Inbox
-- [ ] 检查状态变化次数
-- [ ] 检查 Provider Effect
+- [x] 使用同一个 EventId 连续发送两次
+- [x] 使用同一个 EventId 并发发送两次
+- [x] 检查 HTTP 响应
+- [x] 检查 Callback Inbox
+- [x] 检查状态变化次数
+- [x] 检查 Provider Effect
 
 ### PASS 条件
 
@@ -1411,6 +1411,22 @@ Inbox 只有一条
 状态变化只发生一次
 ProviderOperationCount 不变
 ```
+
+### 执行结果
+
+```text
+PASS（E2）— 2/2
+顺序重复：HTTP=200,200、Inbox=1、Succeeded Transition=1
+并发重复：HTTP=200,200、Inbox=1、Succeeded Transition=1
+两个场景：Contribution=Succeeded、Version=1
+两个场景：ReconciliationRecord=0、Operator Outbox=0
+ProviderOperationCount：0 -> 0，保持不变
+生产代码修改：0
+测试聚合：删除2条低层 Handler 重复用例，替换为2条真实 HTTP 用例
+```
+
+聚合实验报告：
+[`learning/phase-3/exp8-duplicate-callback.md`](phase-3/exp8-duplicate-callback.md)
 
 ---
 
