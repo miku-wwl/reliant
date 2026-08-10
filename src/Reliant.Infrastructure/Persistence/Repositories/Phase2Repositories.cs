@@ -364,14 +364,24 @@ public class LeaseRepository(ReliantDbContext db) : ILeaseRepository
         return result is not null && result is not DBNull;
     }
 
-    public async Task RenewAsync(Guid leaseId, DateTime newExpiresAt, CancellationToken cancellationToken = default)
+    public async Task<bool> RenewAsync(
+        JobExecutionFence fence,
+        DateTime heartbeatAt,
+        DateTime newExpiresAt,
+        CancellationToken cancellationToken = default)
     {
-        await db.Leases
+        var affected = await db.Leases
             .IgnoreQueryFilters()
-            .Where(x => x.Id == leaseId)
+            .Where(x =>
+                x.Id == fence.LeaseId &&
+                x.JobRunId == fence.JobRunId &&
+                x.FencingToken == fence.FencingToken &&
+                x.IsActive &&
+                x.ExpiresAt > heartbeatAt)
             .ExecuteUpdateAsync(x => x
                 .SetProperty(p => p.ExpiresAt, newExpiresAt)
-                .SetProperty(p => p.LastHeartbeatAt, DateTime.UtcNow), cancellationToken);
+                .SetProperty(p => p.LastHeartbeatAt, heartbeatAt), cancellationToken);
+        return affected == 1;
     }
 
     public async Task ReleaseAsync(Guid leaseId, CancellationToken cancellationToken = default)

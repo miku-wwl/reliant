@@ -90,6 +90,17 @@ public class DuplicateDeliveryE2ETests(ITestOutputHelper output)
             Interlocked.Increment(ref _deleteCount);
         }
 
+        public Task RenewVisibilityAsync(
+            string queueUrl,
+            string receiptHandle,
+            int visibilityTimeoutSeconds,
+            CancellationToken cancellationToken = default)
+            => inner.RenewVisibilityAsync(
+                queueUrl,
+                receiptHandle,
+                visibilityTimeoutSeconds,
+                cancellationToken);
+
         public async Task SendAsync(
             string queueUrl,
             string messageBody,
@@ -188,11 +199,12 @@ public class DuplicateDeliveryE2ETests(ITestOutputHelper output)
             CancellationToken cancellationToken = default)
             => Task.FromResult(true);
 
-        public Task RenewAsync(
-            Guid leaseId,
+        public Task<bool> RenewAsync(
+            JobExecutionFence fence,
+            DateTime heartbeatAt,
             DateTime newExpiresAt,
             CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+            => Task.FromResult(true);
 
         public Task ReleaseAsync(
             Guid leaseId,

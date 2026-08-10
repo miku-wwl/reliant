@@ -27,7 +27,11 @@ public class ProcessingHandlerService(
         1,
         configuration.GetValue<int?>(
             "Worker:ProcessingConcurrency") ?? 10);
-    private readonly int VisibilityTimeoutSeconds = configuration.GetValue<int?>("Worker:VisibilityTimeoutSeconds") ?? 35;
+    private readonly int VisibilityTimeoutSeconds = Math.Clamp(
+        configuration.GetValue<int?>(
+            "Worker:VisibilityTimeoutSeconds") ?? 35,
+        1,
+        43200);
     private readonly int LeaseSeconds = Math.Max(
         1,
         configuration.GetValue<int?>("Worker:LeaseSeconds") ?? 30);
@@ -52,6 +56,17 @@ public class ProcessingHandlerService(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         logger.LogInformation("Processing Handler started");
+        if (HeartbeatIntervalMs >=
+            Math.Min(
+                VisibilityTimeoutSeconds * 1000,
+                LeaseSeconds * 1000))
+        {
+            logger.LogWarning(
+                "Unsafe heartbeat configuration: interval {HeartbeatIntervalMs}ms must be shorter than both Lease {LeaseSeconds}s and SQS Visibility {VisibilityTimeoutSeconds}s",
+                HeartbeatIntervalMs,
+                LeaseSeconds,
+                VisibilityTimeoutSeconds);
+        }
 
         using var semaphore = new SemaphoreSlim(
             ProcessingConcurrency,
@@ -82,7 +97,10 @@ public class ProcessingHandlerService(
 
                     if (message is null) return;
 
-                    logger.LogInformation("Processing message {MessageId}", message.MessageId);
+                    logger.LogInformation(
+                        "Processing message {MessageId}; approximate receive count {ApproximateReceiveCount}",
+                        message.MessageId,
+                        message.ApproximateReceiveCount);
                     var jobRunId = ResolveJobRunId(message.MessageId);
                     var validation = ValidateProcessingMessage(message);
                     if (!validation.IsValid)
@@ -251,9 +269,16 @@ public class ProcessingHandlerService(
                             jobRunId,
                             lease.Id,
                             lease.FencingToken);
-                    var heartbeatCts = new CancellationTokenSource();
+                    using var heartbeatCts =
+                        CancellationTokenSource
+                            .CreateLinkedTokenSource(
+                                stoppingToken);
                     var heartbeatTask = HeartbeatLoop(
-                        lease.Id,
+                        executionFence,
+                        queueAdapter,
+                        queueUrl,
+                        message.ReceiptHandle,
+                        message.MessageId,
                         heartbeatCts.Token);
 
                     try
@@ -1051,25 +1076,91 @@ public class ProcessingHandlerService(
     }
 
     private async Task HeartbeatLoop(
-        Guid leaseId,
+        JobExecutionFence fence,
+        IQueueAdapter queueAdapter,
+        string queueUrl,
+        string receiptHandle,
+        string messageId,
         CancellationToken cancellationToken)
     {
+        var firstHeartbeat = true;
         while (!cancellationToken.IsCancellationRequested)
         {
             try
             {
-                await Task.Delay(HeartbeatIntervalMs, cancellationToken);
+                if (!firstHeartbeat)
+                {
+                    await Task.Delay(
+                        HeartbeatIntervalMs,
+                        cancellationToken);
+                }
+                firstHeartbeat = false;
                 using var heartbeatScope =
                     serviceProvider.CreateScope();
                 var leaseRepo = heartbeatScope.ServiceProvider
                     .GetRequiredService<ILeaseRepository>();
-                await leaseRepo.RenewAsync(
-                    leaseId,
-                    DateTime.UtcNow.AddSeconds(LeaseSeconds),
+                var heartbeatAt = DateTime.UtcNow;
+                var leaseExpiresAt =
+                    heartbeatAt.AddSeconds(LeaseSeconds);
+                var leaseRenewed =
+                    await leaseRepo.RenewAsync(
+                        fence,
+                        heartbeatAt,
+                        leaseExpiresAt,
+                        cancellationToken);
+                if (!leaseRenewed)
+                {
+                    logger.LogWarning(
+                        "Heartbeat rejected for message {MessageId}; job {JobRunId}; lease {LeaseId}; token {FencingToken}. SQS visibility was not renewed and processing will rely on redelivery",
+                        messageId,
+                        fence.JobRunId,
+                        fence.LeaseId,
+                        fence.FencingToken);
+                    break;
+                }
+
+                await queueAdapter.RenewVisibilityAsync(
+                    queueUrl,
+                    receiptHandle,
+                    VisibilityTimeoutSeconds,
                     cancellationToken);
+                logger.LogDebug(
+                    "Heartbeat renewed database lease through {LeaseExpiresAt} and SQS visibility for {VisibilityTimeoutSeconds}s; message {MessageId}; lease {LeaseId}; token {FencingToken}",
+                    leaseExpiresAt,
+                    VisibilityTimeoutSeconds,
+                    messageId,
+                    fence.LeaseId,
+                    fence.FencingToken);
             }
-            catch (OperationCanceledException) { break; }
-            catch { break; }
+            catch (OperationCanceledException)
+                when (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (QueueVisibilityRenewalException ex)
+            {
+                logger.LogWarning(
+                    ex,
+                    "SQS visibility heartbeat failed for message {MessageId}; job {JobRunId}; lease {LeaseId}; token {FencingToken}; failure kind {FailureKind}; transient {IsTransient}. Heartbeat stopped so the message can be redelivered after its last successful visibility timeout",
+                    messageId,
+                    fence.JobRunId,
+                    fence.LeaseId,
+                    fence.FencingToken,
+                    ex.FailureKind,
+                    ex.IsTransient);
+                break;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(
+                    ex,
+                    "Heartbeat failed for message {MessageId}; job {JobRunId}; lease {LeaseId}; token {FencingToken}. Heartbeat stopped so Lease and SQS visibility can expire",
+                    messageId,
+                    fence.JobRunId,
+                    fence.LeaseId,
+                    fence.FencingToken);
+                break;
+            }
         }
     }
 }

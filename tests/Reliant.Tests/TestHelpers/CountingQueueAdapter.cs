@@ -10,6 +10,7 @@ public sealed class CountingQueueAdapter : IQueueAdapter
 {
     private readonly IQueueAdapter _inner;
     private int _receiveCount;
+    private int _visibilityRenewalCount;
     private int _deleteCount;
     private int _sendCount;
 
@@ -19,6 +20,7 @@ public sealed class CountingQueueAdapter : IQueueAdapter
     }
 
     public int ReceiveCount => _receiveCount;
+    public int VisibilityRenewalCount => _visibilityRenewalCount;
     public int DeleteCount => _deleteCount;
     public int SendCount => _sendCount;
 
@@ -37,6 +39,20 @@ public sealed class CountingQueueAdapter : IQueueAdapter
     {
         Interlocked.Increment(ref _deleteCount);
         return _inner.DeleteAsync(queueUrl, receiptHandle, cancellationToken);
+    }
+
+    public Task RenewVisibilityAsync(
+        string queueUrl,
+        string receiptHandle,
+        int visibilityTimeoutSeconds,
+        CancellationToken cancellationToken = default)
+    {
+        Interlocked.Increment(ref _visibilityRenewalCount);
+        return _inner.RenewVisibilityAsync(
+            queueUrl,
+            receiptHandle,
+            visibilityTimeoutSeconds,
+            cancellationToken);
     }
 
     public Task SendAsync(string queueUrl, string messageBody, string messageId, string messageType, CancellationToken cancellationToken = default)

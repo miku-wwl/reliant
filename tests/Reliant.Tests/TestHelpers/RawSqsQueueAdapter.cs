@@ -97,6 +97,20 @@ public sealed class RawSqsQueueAdapter : IQueueAdapter
         }, cancellationToken);
     }
 
+    public Task RenewVisibilityAsync(
+        string queueUrl,
+        string receiptHandle,
+        int visibilityTimeoutSeconds,
+        CancellationToken cancellationToken = default)
+        => _client.ChangeMessageVisibilityAsync(
+            new ChangeMessageVisibilityRequest
+            {
+                QueueUrl = queueUrl,
+                ReceiptHandle = receiptHandle,
+                VisibilityTimeout = visibilityTimeoutSeconds
+            },
+            cancellationToken);
+
     public async Task SendAsync(string queueUrl, string messageBody, string messageId, string messageType, CancellationToken cancellationToken = default)
     {
         var attributes = new Dictionary<string, MessageAttributeValue>

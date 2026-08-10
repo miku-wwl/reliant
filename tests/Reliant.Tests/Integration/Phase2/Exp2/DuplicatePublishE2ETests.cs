@@ -65,6 +65,17 @@ public class DuplicatePublishE2ETests(ITestOutputHelper output)
             Interlocked.Increment(ref _deleteCount);
         }
 
+        public Task RenewVisibilityAsync(
+            string queueUrl,
+            string receiptHandle,
+            int visibilityTimeoutSeconds,
+            CancellationToken cancellationToken = default)
+            => inner.RenewVisibilityAsync(
+                queueUrl,
+                receiptHandle,
+                visibilityTimeoutSeconds,
+                cancellationToken);
+
         public async Task SendAsync(
             string queueUrl,
             string messageBody,

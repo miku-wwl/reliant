@@ -1,9 +1,11 @@
+using Amazon.Runtime;
 using Amazon.SQS;
 using Amazon.SQS.Model;
 using Microsoft.Extensions.Configuration;
 using Reliant.Application.Abstractions;
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Net;
 using System.Text.Json;
 
 namespace Reliant.Infrastructure.Queue;
@@ -197,6 +199,45 @@ public class SqsQueueAdapter : IQueueAdapter
         return new SqsMessage(msg);
     }
 
+    public async Task RenewVisibilityAsync(
+        string queueUrl,
+        string receiptHandle,
+        int visibilityTimeoutSeconds,
+        CancellationToken cancellationToken = default)
+    {
+        if (visibilityTimeoutSeconds is < 1 or > 43200)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(visibilityTimeoutSeconds),
+                "SQS visibility timeout must be between 1 and 43200 seconds.");
+        }
+
+        try
+        {
+            using var requestCts =
+                CreateRequestCancellationTokenSource(
+                    cancellationToken,
+                    _requestTimeout);
+            await _client.ChangeMessageVisibilityAsync(
+                new ChangeMessageVisibilityRequest
+                {
+                    QueueUrl = queueUrl,
+                    ReceiptHandle = receiptHandle,
+                    VisibilityTimeout = visibilityTimeoutSeconds
+                },
+                requestCts.Token);
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw ClassifyVisibilityRenewalFailure(ex);
+        }
+    }
+
     public async Task DeleteAsync(string queueUrl, string receiptHandle, CancellationToken cancellationToken = default)
     {
         using var requestCts =
@@ -240,6 +281,91 @@ public class SqsQueueAdapter : IQueueAdapter
                 callerToken);
         requestCts.CancelAfter(timeout);
         return requestCts;
+    }
+
+    private static QueueVisibilityRenewalException
+        ClassifyVisibilityRenewalFailure(Exception exception)
+    {
+        if (exception is AmazonServiceException serviceException)
+        {
+            var errorCode = serviceException.ErrorCode ?? string.Empty;
+            var errorMessage = serviceException.Message ?? string.Empty;
+            if (errorCode.Contains(
+                    "ReceiptHandle",
+                    StringComparison.OrdinalIgnoreCase) ||
+                errorMessage.Contains(
+                    "receipt handle",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return new QueueVisibilityRenewalException(
+                    QueueVisibilityFailureKind.InvalidReceiptHandle,
+                    isTransient: false,
+                    $"SQS rejected the receipt handle: {serviceException.Message}",
+                    serviceException);
+            }
+
+            if (serviceException.StatusCode ==
+                    (HttpStatusCode)429 ||
+                errorCode.Contains(
+                    "Throttl",
+                    StringComparison.OrdinalIgnoreCase) ||
+                errorCode.Equals(
+                    "RequestLimitExceeded",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return new QueueVisibilityRenewalException(
+                    QueueVisibilityFailureKind.RateLimited,
+                    isTransient: true,
+                    $"SQS throttled visibility renewal: {serviceException.Message}",
+                    serviceException);
+            }
+
+            var transient =
+                serviceException.StatusCode ==
+                    HttpStatusCode.RequestTimeout ||
+                serviceException.StatusCode >=
+                    HttpStatusCode.InternalServerError ||
+                serviceException.StatusCode == 0;
+            return new QueueVisibilityRenewalException(
+                transient
+                    ? QueueVisibilityFailureKind
+                        .TransientServiceFailure
+                    : QueueVisibilityFailureKind
+                        .PermanentFailure,
+                transient,
+                $"SQS visibility renewal failed: {serviceException.Message}",
+                serviceException);
+        }
+
+        if (exception is TimeoutException or TaskCanceledException)
+        {
+            return new QueueVisibilityRenewalException(
+                QueueVisibilityFailureKind.Timeout,
+                isTransient: true,
+                $"SQS visibility renewal timed out: {exception.Message}",
+                exception);
+        }
+
+        if (exception is HttpRequestException or IOException)
+        {
+            return new QueueVisibilityRenewalException(
+                QueueVisibilityFailureKind.TransientServiceFailure,
+                isTransient: true,
+                $"SQS visibility renewal transport failed: {exception.Message}",
+                exception);
+        }
+
+        if (exception.InnerException is not null)
+        {
+            return ClassifyVisibilityRenewalFailure(
+                exception.InnerException);
+        }
+
+        return new QueueVisibilityRenewalException(
+            QueueVisibilityFailureKind.TransientServiceFailure,
+            isTransient: true,
+            $"SQS visibility renewal failed: {exception.Message}",
+            exception);
     }
 }
 

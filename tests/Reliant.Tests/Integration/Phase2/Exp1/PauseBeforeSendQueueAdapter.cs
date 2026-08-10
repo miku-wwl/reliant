@@ -36,6 +36,17 @@ public sealed class PauseBeforeSendQueueAdapter(IQueueAdapter inner) : IQueueAda
         CancellationToken cancellationToken = default)
         => inner.DeleteAsync(queueUrl, receiptHandle, cancellationToken);
 
+    public Task RenewVisibilityAsync(
+        string queueUrl,
+        string receiptHandle,
+        int visibilityTimeoutSeconds,
+        CancellationToken cancellationToken = default)
+        => inner.RenewVisibilityAsync(
+            queueUrl,
+            receiptHandle,
+            visibilityTimeoutSeconds,
+            cancellationToken);
+
     public async Task SendAsync(
         string queueUrl,
         string messageBody,
