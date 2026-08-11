@@ -10,7 +10,7 @@
 | --- | ---: | ---: | ---: | --- |
 | Phase 2 | 12/12 | 16 | 12/12 | 软件与 E2 实验完整；Owner Gate 仍需本人签发 |
 | Phase 3 | 15/15 | 25 | 15/15 | 软件与 E1/E2 实验完整；Owner Gate 仍需本人签发 |
-| Phase 3.1 | 10 Gates | 全量测试见 current-state | Evidence Pack 完整 | 当前 main CI 必须与最终补全提交重新绑定 |
+| Phase 3.1 | 10 Gates | 163/163 | Evidence Pack 完整 | `3dc26f9` CI SUCCESS |
 
 截至本次审计，没有发现“目录存在但零测试”“有清单但没有报告”或“报告存在但
 测试命名空间无法发现”的 Phase 2 / Phase 3 实验。
@@ -130,17 +130,18 @@
 
 ## 5. Phase 3.1 审计
 
-Phase 3.1 的 10 个 Final Gates 已有历史 CI Evidence，且 2026-08-10 的 main
-提交 8c154c2 对应 GitHub Actions run 31399285542 成功。原 Evidence Pack 仍停留在
-146-test 历史基线，属于文档漂移，不是代码失败。
+Phase 3.1 的 10 个 Final Gates 已重新绑定到补全实现提交 `3dc26f9`；GitHub
+Actions run `31446024186` 成功。CI 验证 163/163、0 build warning、0 known
+vulnerable package，并上传 TRX、实验发现摘要和依赖审计。原 146-test 与
+162-test 结果保留为历史基线，不再作为当前 SHA 的证明。
 
-本轮要求：
+本轮已完成：
 
-1. 本地运行统一 verify，取得新总数；
-2. push 最终补全提交；
-3. 等待该 SHA 的 GitHub Actions 成功；
-4. 更新 ci-run.md、README.md、current-state.md；
-5. 保留 146-test 记录为 Historical Baseline，不把它冒充当前 SHA。
+1. 本地与 CI 均运行统一 verify，取得 163/163；
+2. 最终补全实现提交已 push；
+3. 该 SHA 的 GitHub Actions 已成功；
+4. ci-run.md、README.md、current-state.md 已与当前证据同步；
+5. 146-test 记录作为 Historical Baseline 保留。
 
 ### Phase 3.1 外部或后续范围
 
@@ -165,8 +166,8 @@ Phase 3.1 的 10 个 Final Gates 已有历史 CI Evidence，且 2026-08-10 的 m
 
 ## 7. Gate 建议
 
-- 软件 Gate：补全后可提交，但必须以最终全量测试和最终 SHA CI 为准。
+- 软件 Gate：PASS，以 `3dc26f9`、CI run `31446024186` 和 163/163 为准。
 - Phase 2 Owner Gate：VALIDATION，等待 Owner 本人复现关键实验并签字。
 - Phase 3 Owner Gate：VALIDATION，等待 Owner 口试、图和签字。
-- Phase 3.1 Engineering Gate：最终 CI 成功后可保持 Completed。
+- Phase 3.1 Engineering Gate：Completed。
 - Phase 4 Entry：技术上可以开始，但 Owner 若坚持原清单流程，应先完成两次人工签发。

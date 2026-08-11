@@ -65,12 +65,12 @@ Worker
 
 在进入 Phase 4 前：
 
-- [ ] 停止增加 OpenTelemetry、Dashboard、SLI/SLO 和 k6 Gate
-- [ ] 停止扩展新的 Phase 3 Scope
-- [ ] 确认 Phase 3.1 实现已冻结
-- [ ] 确认所有 Phase 3.1 代码已通过 CI
-- [ ] 确认当前 Phase 3 Evidence Pack 与代码一致
-- [ ] 创建 Phase 3 Owner 学习与实验目录
+- [x] 停止增加 OpenTelemetry、Dashboard、SLI/SLO 和 k6 Gate
+- [x] 停止扩展新的 Phase 3 Scope
+- [x] 确认 Phase 3.1 实现已冻结
+- [x] 确认所有 Phase 3.1 代码已通过 CI
+- [x] 确认当前 Phase 3 Evidence Pack 与代码一致
+- [x] 创建 Phase 3 Owner 学习与实验目录
 - [ ] 由 Owner 亲自完成关键实验
 - [ ] 由 Owner 决定 `ACCEPT / VALIDATION / BLOCKED`
 
@@ -1804,6 +1804,9 @@ Hosted：ScheduledMaintenance Enabled 后自动清理过期 Outbox
 全量稳定性修复：5个 Worker publish Docker 实验串行；Exp12 等待 Lease release
 ```
 
+> 当前补全审计：Exp15 仍为 1/1；仓库扩展全量为 163/163，GitHub Actions
+> run 31446024186 PASS。162/162 保留为 Exp15 首次完成时的历史快照。
+
 聚合实验报告：
 [`learning/phase-3/exp15-operational-history-retention.md`](phase-3/exp15-operational-history-retention.md)
 
@@ -2459,9 +2462,9 @@ Phase 3 的 Exactly-once 目标是什么？
 
 ## Step 1 — Freeze Phase 4
 
-- [ ] 不新增 OTel / Dashboard / SLO
-- [ ] 保存 Phase 3 当前完成状态
-- [ ] 确认 CI Green
+- [x] 不新增 OTel / Dashboard / SLO
+- [x] 保存 Phase 3 当前完成状态
+- [x] 确认 CI Green
 - [ ] 建立学习分支和目录
 
 ## Step 2 — Complete Phase 2 Owner Gate

@@ -1,14 +1,14 @@
 # Reliant - Current State
 
 > 最后更新：Phase 2/3/3.1 Completion Audit（2026-08-11）—
-> Local Verified；最终补全提交的 CI Evidence 待 push 后绑定
+> Local + GitHub CI Verified
 
 ## Phase 3.1 状态
 
 ```text
 Phase 3.1 — Completed
 
-All 10 Final Gates PASS. Historical 146-test baseline:
+All 10 Final Gates PASS. Current 163-test baseline:
 Outbox -> SQS -> Worker -> Provider -> Reconciliation -> Callback proven
 end-to-end over PostgreSQL (Testcontainers) + LocalStack SQS + a real worker host.
 
@@ -16,9 +16,10 @@ Evidence pack: docs/evidence/phase-3.1/
 CI evidence: docs/evidence/phase-3.1/ci-run.md
 ```
 
-当前 main 基线 `8c154c2` 已有 162-test GitHub Actions Success
-（run 31399285542）。本轮在该基线上补全 Dead-letter Replay、Checkpoint、
-实验 discovery 和依赖安全 Gate。最新本地全量结果：
+补全实现基线 `3dc26f9` 已通过 GitHub Actions
+[run 31446024186](https://github.com/miku-wwl/reliant/actions/runs/31446024186)。
+本轮在原基线上补全 Dead-letter Replay、Checkpoint、实验 discovery 和依赖安全
+Gate。CI 结果：
 
 ```text
 163 passed, 0 failed, 0 skipped
@@ -28,8 +29,8 @@ Phase 2 Exp1–Exp12: 16 executable tests / 12 reports
 Phase 3 Exp1–Exp15: 25 executable tests / 15 reports
 ```
 
-最终补全提交 push 后需要重新取得 GitHub Actions CI evidence；146-test 和
-162-test 记录保留为历史基线，不冒充本轮 163-test SHA。
+146-test 和 162-test 记录仅作为 Historical Baseline 保留，不冒充本轮
+`3dc26f9` 的 163-test CI Evidence。
 
 ## 当前能力状态
 

@@ -41,5 +41,6 @@ deliberately deferred or out of scope for this phase.
 ## Scope guardrail
 
 None of the above affects the Phase 3.1 Final Gate evidence, which is
-established by 146 passing tests (65 unit, 5 architecture, 76 integration
-including 10 WorkerHost E2E) over PostgreSQL + LocalStack + a real worker host.
+established by 163 passing tests (65 unit, 5 architecture, 93 integration;
+23 match the WorkerHost filter) over PostgreSQL + LocalStack + a real worker
+host. The historical 146-test closure remains preserved in `ci-run.md`.

@@ -1,7 +1,8 @@
 # Phase 3.1 Evidence - Test Summary
 
 > Evidence Level: E1 (Testcontainers PostgreSQL) + E2 (LocalStack SQS + WorkerHost E2E)
-> Verified at Commit 19 (`39b492c`). Counts match `scripts/verify.ps1` gates.
+> Current baseline: `3dc26f9`, CI run `31446024186`. Counts match
+> `scripts/verify.ps1` gates.
 
 ## Test Summary
 
@@ -9,13 +10,24 @@
 | --- | --- | --- |
 | Unit Tests | 65 | All Passed |
 | Architecture Tests | 5 | All Passed |
-| Integration Tests (PostgreSQL) | 52 | All Passed |
-| Integration Tests (LocalStack) | 15 | All Passed |
-| Integration Tests (HttpApi) | 9 | All Passed |
-| End-to-End (WorkerHost) | 10 | All Passed |
-| **Total** | **146** | **All Passed** |
+| Integration Tests (all) | 93 | All Passed |
+| Integration Tests (PostgreSQL filter) | 85 | All Passed |
+| Integration Tests (LocalStack filter) | 35 | All Passed |
+| Integration Tests (HttpApi filter) | 10 | All Passed |
+| End-to-End (WorkerHost filter) | 23 | All Passed |
+| **Total** | **163** | **All Passed** |
 
-## Test Files (Integration + E2E)
+Dependency filters overlap; 85, 35, 10 and 23 are coverage views over the 93
+integration tests and are not additive.
+
+## Historical Phase 3.1 closure inventory
+
+The inventory below records the original 146-test Phase 3.1 closure. The
+current repository has additional Phase 2/3 experiment tests; the authoritative
+current inventory is the CI-generated `test-summary.md` and
+`experiment-summary.md` attached to run `31446024186`.
+
+### Test Files (Integration + E2E)
 
 | File | Scope | Dependency |
 | --- | --- | --- |
@@ -38,7 +50,7 @@
 | `SafeRetryE2ETests.cs` (1) | Timeout -> NotFound -> retry -> success, one provider effect | LocalStack + WorkerHost |
 | `CircuitOpenE2ETests.cs` (1) | Circuit open -> no ack -> ApproximateReceiveCount >= 2 -> recover | LocalStack + WorkerHost |
 
-## Unit Test Files
+### Unit Test Files
 
 - `CircuitBreakerTests.cs` (11): single probe, open/defer, TimeProvider-based
 - `ContributionStateMachineTests.cs` (27): all allowed transitions

@@ -1,8 +1,8 @@
 # Phase 3.1 Evidence Pack
 
 > Evidence Level: E1 (Testcontainers PostgreSQL) + E2 (LocalStack SQS + WorkerHost E2E)
-> Baseline: `fc345f5` (Round 2 closure). Verified at Commit 19 (`39b492c`).
-> Status: **Phase 3.1 — Completed** (all 10 Final Gates PASS, CI evidence present).
+> Current implementation baseline: `3dc26f9`; GitHub Actions run `31446024186`.
+> Status: **Phase 3.1 — Completed** (all 10 Final Gates PASS, current CI evidence present).
 
 ## Test Counts (scripts/verify.ps1 gates)
 
@@ -10,12 +10,15 @@
 | --- | --- | --- | --- |
 | Unit | `Category=Unit` | 65 | PASS |
 | Architecture | `Category=Architecture` | 5 | PASS |
-| PostgreSQL Integration | `Category=Integration&Dependency=PostgreSQL` | 52 | PASS |
-| LocalStack Integration | `Category=Integration&Dependency=LocalStack` | 15 | PASS |
-| HttpApi Integration | `Category=Integration&Dependency=HttpApi` | 9 | PASS |
-| WorkerHost E2E | `Category=Integration&Dependency=WorkerHost` | 10 | PASS |
-| **Integration total** | `Category=Integration` | **76** | PASS |
-| **Total** | | **146** | **PASS** |
+| PostgreSQL Integration | `Category=Integration&Dependency=PostgreSQL` | 85 | PASS |
+| LocalStack Integration | `Category=Integration&Dependency=LocalStack` | 35 | PASS |
+| HttpApi Integration | `Category=Integration&Dependency=HttpApi` | 10 | PASS |
+| WorkerHost E2E | `Category=Integration&Dependency=WorkerHost` | 23 | PASS |
+| **Integration total** | `Category=Integration` | **93** | PASS |
+| **Total** | | **163** | **PASS** |
+
+Dependency filters overlap; the four dependency rows must not be summed to
+derive the integration total.
 
 ## Gate Results
 
@@ -29,8 +32,8 @@
 | 6 Retry Scheduling | PASS | `retry-scheduling.md` | `RetrySchedulingTests` (5) + `RetryMessageContractTests` (3): due/not-due, concurrent single dispatch, max -> DLQ |
 | 7 Circuit Breaker | PASS | `circuit-breaker.md` | `CircuitBreakerTests` (11) + `CircuitBreakerIntegrationTests` (4) + `CircuitOpenE2ETests`: open no-ack + ApproximateReceiveCount >= 2 |
 | 8 Crash Recovery | PASS | `crash-recovery.md` | `CrashRecoveryTests` (3) + `CrashBeforeAckE2ETests` + `DuplicateMessageE2ETests`: crash-before-ACK redelivery dedup, effect = 1 |
-| 9 Integration Evidence | PASS | `localstack-sqs.md`, `final-e2e.md` | `LocalStackSqsTests` (5) + 5 E2E classes (10 tests): real SQS send/receive/delete/visibility/redelivery/counters |
-| 10 Documentation & CI | PASS | `ci-run.md`, this pack, `current-state.md` | verify.ps1 test-count gate (0-match fails), TRX artifacts, test-summary, ADR-0017~0022 Accepted |
+| 9 Integration Evidence | PASS | `localstack-sqs.md`, `final-e2e.md` | 23 WorkerHost-filtered tests plus LocalStack coverage: real SQS send/receive/delete/visibility/redelivery/counters |
+| 10 Documentation & CI | PASS | `ci-run.md`, this pack, `current-state.md` | dependency, format, build, count and per-experiment gates; TRX and audit artifacts |
 
 ## Evidence index
 
@@ -47,6 +50,9 @@
 - [`ci-run.md`](ci-run.md) — CI evidence (commit, workflow, counts)
 - [`known-limitations.md`](known-limitations.md) — non-blocking limitations
 - [`test-summary.md`](test-summary.md) — full test inventory
+
+The original 146-test closure remains in the historical section of
+[`ci-run.md`](ci-run.md); it is not presented as evidence for the current SHA.
 
 ## Known Limitations
 
