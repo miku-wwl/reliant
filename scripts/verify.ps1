@@ -2,8 +2,8 @@
 .SYNOPSIS
     Reliant unified verification script (CI + local).
 .DESCRIPTION
-    Runs restore / vulnerable-package audit / format check / build / unit /
-    architecture / integration tests.
+    Runs restore / vulnerable-package audit / format check / clean warning-free
+    build / unit / architecture / integration tests.
     Enforces a TEST COUNT GATE: every category must match at least the required
     minimum number of tests, otherwise the run FAILS (a filter that matches 0
     tests can never pass). Produces TRX results, a final-e2e log and a
@@ -91,7 +91,8 @@ if (-not $SkipFormat) {
 # 4. Build
 # ------------------------------------------------------------------ #
 Write-Host "[4/7] Build..." -ForegroundColor Yellow
-dotnet build $solution.FullName --no-restore --configuration Debug
+dotnet build $solution.FullName --no-restore --configuration Debug `
+    --no-incremental --warnaserror
 if ($LASTEXITCODE -ne 0) { Write-Host "Build FAILED" -ForegroundColor Red; exit 1 }
 
 # ------------------------------------------------------------------ #

@@ -37,8 +37,7 @@ public class GetContributionHandler(
 public record ListContributionsQuery(int Limit = 20, string? Cursor = null) : IRequest<ListResponse<ContributionResponse>>;
 
 public class ListContributionsHandler(
-    IContributionRepository contributionRepository,
-    ITenantContext tenantContext) : IRequestHandler<ListContributionsQuery, ListResponse<ContributionResponse>>
+    IContributionRepository contributionRepository) : IRequestHandler<ListContributionsQuery, ListResponse<ContributionResponse>>
 {
     public async Task<ListResponse<ContributionResponse>> Handle(ListContributionsQuery request, CancellationToken cancellationToken)
     {

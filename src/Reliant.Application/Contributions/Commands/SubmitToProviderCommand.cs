@@ -36,7 +36,6 @@ public class SubmitToProviderHandler(
     IProvider provider,
     IProcessingAttemptRepository attemptRepo,
     IProviderReferenceRepository referenceRepo,
-    IContributionRepository contributionRepo,
     IUnitOfWork unitOfWork,
     CircuitBreaker circuitBreaker,
     IProviderOperationKeyFactory keyFactory,
