@@ -33,15 +33,16 @@ Poison Message 进入 DLQ：是
 - 测试目录：`tests/Reliant.Tests/Integration/Phase2/Exp6/`
 - 测试：
   `PoisonMessages_ShouldEnterNativeDlq_WithoutBlockingNormalMessage`
+  `DeadLetterReplay_ShouldBeExplicitAtomicAndAudited`
 - 环境：.NET 10、PostgreSQL 17 Testcontainer、LocalStack 3、真实 WorkerHost
 - 主队列：每次测试生成唯一名称
 - DLQ：`<主队列名称>-dlq`
 - SQS Visibility Timeout：2 秒
 - 本实验 `maxReceiveCount`：3
 - Poison 类型：Malformed JSON、Unsupported Version
-- 专项测试：1/1 通过
+- 专项测试：2/2 通过（2026-08-11 补全受控 Replay）
 - Exp5 交叉回归：3/3 通过
-- 最终全量：154/154 通过
+- 初次全量：154/154 通过；当前全量结果见 `docs/current-state.md`
 
 ## 我的假设
 
@@ -299,7 +300,13 @@ PostgreSQL 使用密码认证，不需要 GSS，因此 Exp4 / Exp5 的容器连�
 - [x] 主队列最终为空
 - [x] 数据库有两条 DeadLetterRecord
 - [x] ErrorCategory、ErrorMessage、AttemptCount、时间可审计
-- [x] 专项测试 1/1 通过
+- [x] CorrelationId / CausationId 可审计
+- [x] Replay 必须由 Operator 显式确认
+- [x] Replay 原子 claim，重复操作被拒绝
+- [x] Replay 生成新 MessageId，通过 Outbox 投递
+- [x] Replay 与 AuditEvent 同事务提交
+- [x] 原始 Payload 保留，修复后 Payload 可显式替换
+- [x] 专项测试 2/2 通过
 - [x] Exp5 回归 3/3 通过
 - [x] 全量测试 154/154 通过
 
@@ -331,7 +338,8 @@ Receive
 
 本实验的“3 次”是 Broker delivery attempt，不等于后续 Exp7 要验证的业务
 Transient Retry / Backoff / Jitter。Poison 隔离已经通过，但整个 Retry 与
-受控 Replay Gate 还不能因此提前签 PASS。
+Broker Poison 隔离与受控 Replay 是两条独立路径；2026-08-11 已补充第二个
+PostgreSQL 集成测试验证 Replay，但业务 Transient Retry 仍由 Exp7 单独证明。
 
 ## 第三方复验
 
@@ -347,7 +355,7 @@ dotnet test tests/Reliant.Tests/Reliant.Tests.csproj `
 预期：
 
 ```text
-1 passed, 0 failed, 0 skipped
+2 passed, 0 failed, 0 skipped
 ```
 
 全量回归：
@@ -361,7 +369,7 @@ dotnet test tests/Reliant.Tests/Reliant.Tests.csproj `
 预期：
 
 ```text
-154 passed, 0 failed, 0 skipped
+当前总数见 `docs/current-state.md`
 ```
 
 ## 已知限制和正式化事项
@@ -378,9 +386,16 @@ dotnet test tests/Reliant.Tests/Reliant.Tests.csproj `
    可能缺失；正式项目需要 DLQ audit scanner 做补偿。
 6. 当前只接通 Processing Queue 的 Contract Gate；Notification 等其他 Handler
    需要按各自契约实现相同隔离原则。
-7. `reliantctl deadletter list/replay` 仍是 Skeleton，受控 Replay、Replay 审计和
-   Inbox 交互尚未由本实验验证。
-8. Retry Budget、Transient Retry Exhaustion、Backoff / Jitter 属于后续实验，
+7. `reliantctl deadletter list/replay` 已接通 PostgreSQL；Replay 要求
+   `--organization`、`--operator` 和 `--confirm`，并在同一事务写入 Outbox、
+   `DeadLetterRecord` claim 和 `AuditEvent`。Replay 使用新 MessageId，所以会经过
+   新的 Inbox 检查；业务层仍必须依赖状态机和 Provider stable key 防止副作用重复。
+8. `jobs retry` 不允许直接篡改终态 JobRun；CLI 会拒绝并引导通过受控
+   Dead-letter Replay。针对业务终态的“重新打开”仍需独立审批语义，不能伪装成
+   通用 Replay。
+9. Retry Budget、Transient Retry Exhaustion、Backoff / Jitter 属于后续实验，
    不能用本次 Poison PASS 代替。
-9. 仓库构建仍报告既有 NuGet 高危依赖警告和一个测试辅助 SQS API 过时警告；
-   本实验没有把这些警告伪装成已修复。
+10. 2026-08-11 补全回归同时升级了 Microsoft.OpenApi 2.7.5 和
+    System.Security.Cryptography.Xml 10.0.10，并更新测试辅助 SQS API；当前
+    build 为 0 warning，`dotnet list package --vulnerable --include-transitive`
+    为 0 已知漏洞，CI 已增加硬 Gate。

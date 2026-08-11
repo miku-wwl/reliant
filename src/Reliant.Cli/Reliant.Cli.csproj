@@ -2,10 +2,13 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Reliant.Application\Reliant.Application.csproj" />
+    <ProjectReference Include="..\Reliant.Infrastructure\Reliant.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="System.CommandLine" Version="2.0.0-beta5.25306.1" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.8" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
   </ItemGroup>
 
   <PropertyGroup>

@@ -2,6 +2,8 @@ using Amazon.SQS;
 using Amazon.SQS.Model;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Reliant.Application.Operations;
 using Reliant.Application.Dto;
 using Reliant.Domain.Entities;
 using Reliant.Domain.Enums;
@@ -211,6 +213,10 @@ public sealed class PoisonMessageE2ETests(ITestOutputHelper output)
             Assert.Equal(DeadLetterStatus.Pending, record.Status);
             Assert.Equal("ContributionCreated", record.MessageType);
             Assert.False(string.IsNullOrWhiteSpace(record.ErrorMessage));
+            Assert.False(string.IsNullOrWhiteSpace(record.CorrelationId));
+            Assert.Equal(
+                record.OriginalMessageId,
+                record.CausationId);
             Assert.InRange(
                 record.DeadLetteredAt,
                 startedAt,
@@ -230,6 +236,9 @@ public sealed class PoisonMessageE2ETests(ITestOutputHelper output)
             x => x.OriginalMessageId == unsupportedMessageId);
         Assert.Equal(organizationId, unsupportedRecord.OrganizationId);
         Assert.Equal(unsupportedPayload, unsupportedRecord.Payload);
+        Assert.Equal(
+            "phase2-exp6-unsupported",
+            unsupportedRecord.CorrelationId);
         Assert.Contains(
             "version 99",
             unsupportedRecord.ErrorMessage!,
@@ -292,6 +301,135 @@ public sealed class PoisonMessageE2ETests(ITestOutputHelper output)
             startedAt,
             DateTime.UtcNow,
             stopwatch.ElapsedMilliseconds);
+    }
+
+    [Fact]
+    public async Task DeadLetterReplay_ShouldBeExplicitAtomicAndAudited()
+    {
+        await using var fixture = new WorkerHostFixture();
+        await fixture.InitializeAsync();
+        await fixture.StartWorkersAsync(
+            includeProcessing: false,
+            includeReconciliation: false,
+            includeOutboxPublisher: false);
+
+        var organizationId = Guid.NewGuid();
+        var deadLetterId = Guid.NewGuid();
+        var originalMessageId = Guid.NewGuid().ToString();
+        const string correlationId = "phase2-exp6-replay";
+        const string originalPayload = "{\"version\":99}";
+        const string correctedPayload = "{\"version\":1}";
+
+        await using (var db = CreateDbContext(
+            fixture.PgConnectionString))
+        {
+            db.Organizations.Add(new Organization
+            {
+                Id = organizationId,
+                Name = "Phase 2 Controlled Replay Lab",
+                Status = OrganizationStatus.Active,
+                Version = 0
+            });
+            db.DeadLetterRecords.Add(new DeadLetterRecord
+            {
+                Id = deadLetterId,
+                OrganizationId = organizationId,
+                OriginalMessageId = originalMessageId,
+                MessageType = "ContributionCreated",
+                Payload = originalPayload,
+                CorrelationId = correlationId,
+                CausationId = originalMessageId,
+                ErrorCategory = ErrorCategory.ValidationFailure,
+                ErrorMessage = "Unsupported contract version",
+                AttemptCount = MaxReceiveCount,
+                DeadLetteredAt = DateTime.UtcNow,
+                Status = DeadLetterStatus.Pending
+            });
+            await db.SaveChangesAsync();
+        }
+
+        DeadLetterReplayResult first;
+        DeadLetterReplayResult second;
+        TenantFilterAccessor.SetOrganizationId(organizationId);
+        try
+        {
+            await using (var firstScope =
+                fixture.Host.Services.CreateAsyncScope())
+            {
+                first = await firstScope.ServiceProvider
+                    .GetRequiredService<DeadLetterReplayService>()
+                    .ReplayAsync(
+                        organizationId,
+                        deadLetterId,
+                        "operator@example.test",
+                        correctedPayload);
+            }
+
+            await using (var secondScope =
+                fixture.Host.Services.CreateAsyncScope())
+            {
+                second = await secondScope.ServiceProvider
+                    .GetRequiredService<DeadLetterReplayService>()
+                    .ReplayAsync(
+                        organizationId,
+                        deadLetterId,
+                        "operator@example.test",
+                        correctedPayload);
+            }
+        }
+        finally
+        {
+            TenantFilterAccessor.Clear();
+        }
+
+        Assert.Equal(DeadLetterReplayOutcome.Replayed, first.Outcome);
+        Assert.NotNull(first.ReplayMessageId);
+        Assert.NotEqual(
+            Guid.Parse(originalMessageId),
+            first.ReplayMessageId.Value);
+        Assert.Equal(DeadLetterReplayOutcome.NotPending, second.Outcome);
+        Assert.Equal(first.ReplayMessageId, second.ReplayMessageId);
+
+        await using var finalDb = CreateDbContext(
+            fixture.PgConnectionString);
+        var record = await finalDb.DeadLetterRecords
+            .IgnoreQueryFilters()
+            .SingleAsync(x => x.Id == deadLetterId);
+        var replayOutbox = await finalDb.OutboxMessages
+            .IgnoreQueryFilters()
+            .SingleAsync(x => x.Id == first.ReplayMessageId);
+        var audit = await finalDb.AuditEvents
+            .IgnoreQueryFilters()
+            .SingleAsync(x =>
+                x.EntityType == nameof(DeadLetterRecord) &&
+                x.EntityId == deadLetterId &&
+                x.Action == "Replay");
+
+        Assert.Equal(DeadLetterStatus.Replayed, record.Status);
+        Assert.Equal(1, record.ReplayCount);
+        Assert.NotNull(record.ReplayedAt);
+        Assert.Equal(
+            first.ReplayMessageId.Value.ToString(),
+            record.ReplayMessageId);
+        Assert.Equal("operator@example.test", record.ReplayRequestedBy);
+        Assert.Equal(correctedPayload, replayOutbox.Payload);
+        Assert.Equal(correlationId, replayOutbox.CorrelationId);
+        Assert.Equal(originalMessageId, replayOutbox.CausationId);
+        Assert.Equal(OutboxStatus.Pending, replayOutbox.Status);
+        Assert.Equal("operator@example.test", audit.ChangedBy);
+        Assert.Equal(correlationId, audit.CorrelationId);
+        Assert.Contains("PayloadReplaced", audit.Metadata);
+
+        output.WriteLine(
+            "REPLAY | DeadLetterId={0} | OriginalMessageId={1} | ReplayMessageId={2} | Status=Replayed | ReplayCount=1",
+            deadLetterId,
+            originalMessageId,
+            first.ReplayMessageId);
+        output.WriteLine(
+            "AUDIT | Operator=operator@example.test | CorrelationId={0} | Outbox=Pending | DuplicateReplay=Rejected",
+            correlationId);
+        output.WriteLine(
+            "RESULT | PASS | Explicit=true | AtomicClaim=true | NewMessageId=true | Audited=true");
     }
 
     private static IConfiguration CreateQueueConfiguration(

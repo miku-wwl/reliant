@@ -247,10 +247,20 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.OriginalMessageId).HasMaxLength(128).IsRequired();
             e.Property(x => x.MessageType).HasMaxLength(128).IsRequired();
             e.Property(x => x.Payload).IsRequired();
+            e.Property(x => x.CorrelationId).HasMaxLength(128).IsRequired();
+            e.Property(x => x.CausationId).HasMaxLength(128);
             e.Property(x => x.ErrorCategory).HasConversion<int>();
             e.Property(x => x.ErrorMessage).HasMaxLength(2000);
             e.Property(x => x.Status).HasConversion<int>();
+            e.Property(x => x.ReplayMessageId).HasMaxLength(128);
+            e.Property(x => x.ReplayRequestedBy).HasMaxLength(256);
             e.HasIndex(x => new { x.OrganizationId, x.Status });
+            e.HasIndex(x => new
+            {
+                x.OriginalMessageId,
+                x.MessageType
+            })
+                .IsUnique();
             e.HasQueryFilter(x => x.OrganizationId == TenantOrganizationId);
         });
 

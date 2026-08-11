@@ -22,6 +22,13 @@ public class ProcessingHandlerService(
     IConfiguration configuration,
     ILogger<ProcessingHandlerService> logger) : BackgroundService
 {
+    private const string ProcessingCheckpointKey =
+        "processing-stage";
+    private const string CheckpointProviderSubmissionPending =
+        "ProviderSubmissionPending";
+    private const string CheckpointProviderOutcomeUnknown =
+        "ProviderOutcomeUnknown";
+    private const string CheckpointCompleted = "Completed";
     private readonly string QueueName = configuration["Queue:QueueName"] ?? "reliant-processing";
     private readonly int ProcessingConcurrency = Math.Max(
         1,
@@ -108,6 +115,7 @@ public class ProcessingHandlerService(
                         await HandlePoisonMessageAsync(
                             message,
                             validation.OrganizationId,
+                            validation.Message?.CorrelationId,
                             validation.ErrorMessage ??
                                 "Invalid processing message contract",
                             stoppingToken);
@@ -125,6 +133,7 @@ public class ProcessingHandlerService(
                     var jobRunRepo = innerScope.ServiceProvider.GetRequiredService<IJobRunRepository>();
                     var jobAttemptRepo = innerScope.ServiceProvider.GetRequiredService<IJobAttemptRepository>();
                     var leaseRepo = innerScope.ServiceProvider.GetRequiredService<ILeaseRepository>();
+                    var checkpointRepo = innerScope.ServiceProvider.GetRequiredService<ICheckpointRepository>();
                     var deadLetterRepo = innerScope.ServiceProvider.GetRequiredService<IDeadLetterRepository>();
                     var innerUnitOfWork = innerScope.ServiceProvider.GetRequiredService<IUnitOfWork>();
                     var dbContext = innerScope.ServiceProvider.GetRequiredService<ReliantDbContext>();
@@ -264,6 +273,21 @@ public class ProcessingHandlerService(
                         lease.FencingToken,
                         jobAttempt.AttemptNumber);
 
+                    var previousCheckpoint =
+                        await checkpointRepo.GetAsync(
+                            jobRunId,
+                            ProcessingCheckpointKey,
+                            stoppingToken);
+                    if (previousCheckpoint is not null &&
+                        previousCheckpoint.Value != CheckpointCompleted)
+                    {
+                        logger.LogInformation(
+                            "Resuming job {JobRunId} from checkpoint {CheckpointValue} saved at {CheckpointSavedAt:O}",
+                            jobRunId,
+                            previousCheckpoint.Value,
+                            previousCheckpoint.SavedAt);
+                    }
+
                     var executionFence =
                         new JobExecutionFence(
                             jobRunId,
@@ -392,6 +416,11 @@ public class ProcessingHandlerService(
                                 JobStatus.Succeeded,
                                 null,
                                 stoppingToken);
+                            await SaveProcessingCheckpointAsync(
+                                checkpointRepo,
+                                jobRunId,
+                                CheckpointCompleted,
+                                stoppingToken);
                             await SaveFencedAsync(
                                 innerUnitOfWork,
                                 leaseRepo,
@@ -400,6 +429,17 @@ public class ProcessingHandlerService(
                             await queueAdapter.DeleteAsync(queueUrl, message.ReceiptHandle, stoppingToken);
                             return;
                         }
+
+                        await SaveProcessingCheckpointAsync(
+                            checkpointRepo,
+                            jobRunId,
+                            CheckpointProviderSubmissionPending,
+                            stoppingToken);
+                        await SaveFencedAsync(
+                            innerUnitOfWork,
+                            leaseRepo,
+                            executionFence,
+                            stoppingToken);
 
                         var stateBeforeProviderCall = contribution.State;
 
@@ -452,6 +492,11 @@ public class ProcessingHandlerService(
                                 JobAttemptStatus.Deferred,
                                 JobStatus.Pending,
                                 "Provider circuit is open",
+                                stoppingToken);
+                            await SaveProcessingCheckpointAsync(
+                                checkpointRepo,
+                                jobRunId,
+                                "DeferredCircuitOpen",
                                 stoppingToken);
                             await SaveFencedAsync(
                                 innerUnitOfWork,
@@ -629,6 +674,11 @@ public class ProcessingHandlerService(
                             jobOutcome,
                             jobError,
                             stoppingToken);
+                        await SaveProcessingCheckpointAsync(
+                            checkpointRepo,
+                            jobRunId,
+                            CheckpointCompleted,
+                            stoppingToken);
                         await SaveFencedAsync(
                             innerUnitOfWork,
                             leaseRepo,
@@ -665,7 +715,9 @@ public class ProcessingHandlerService(
                             jobAttempt.Id,
                             JobAttemptStatus.Abandoned,
                             shutdownReason,
-                            markJobPending: true);
+                            markJobPending: true,
+                            checkpointValue:
+                                CheckpointProviderOutcomeUnknown);
                     }
                     catch (DbUpdateConcurrencyException ex)
                     {
@@ -683,7 +735,8 @@ public class ProcessingHandlerService(
                             jobAttempt.Id,
                             JobAttemptStatus.Abandoned,
                             ex.Message,
-                            markJobPending: false);
+                            markJobPending: false,
+                            checkpointValue: null);
                     }
                     catch (InvalidStateTransitionException ex)
                     {
@@ -695,6 +748,8 @@ public class ProcessingHandlerService(
                             OriginalMessageId = message.MessageId,
                             MessageType = message.MessageType,
                             Payload = message.Payload,
+                            CorrelationId = msg.CorrelationId,
+                            CausationId = message.MessageId,
                             ErrorCategory = ErrorCategory.PermanentBusinessRejection,
                             ErrorMessage = ex.Message,
                             AttemptCount = 1,
@@ -725,7 +780,8 @@ public class ProcessingHandlerService(
                             jobAttempt.Id,
                             JobAttemptStatus.Failed,
                             ex.Message,
-                            markJobPending: true);
+                            markJobPending: true,
+                            checkpointValue: null);
                     }
                     finally
                     {
@@ -870,7 +926,8 @@ public class ProcessingHandlerService(
         Guid jobAttemptId,
         JobAttemptStatus attemptStatus,
         string? errorMessage,
-        bool markJobPending)
+        bool markJobPending,
+        string? checkpointValue)
     {
         TenantFilterAccessor.SetOrganizationId(organizationId);
         using var recoveryScope = serviceProvider.CreateScope();
@@ -878,6 +935,8 @@ public class ProcessingHandlerService(
             .GetRequiredService<IJobRunRepository>();
         var jobAttemptRepo = recoveryScope.ServiceProvider
             .GetRequiredService<IJobAttemptRepository>();
+        var checkpointRepo = recoveryScope.ServiceProvider
+            .GetRequiredService<ICheckpointRepository>();
         var unitOfWork = recoveryScope.ServiceProvider
             .GetRequiredService<IUnitOfWork>();
 
@@ -890,8 +949,32 @@ public class ProcessingHandlerService(
             markJobPending ? JobStatus.Pending : null,
             errorMessage,
             CancellationToken.None);
+        if (checkpointValue is not null)
+        {
+            await SaveProcessingCheckpointAsync(
+                checkpointRepo,
+                jobRunId,
+                checkpointValue,
+                CancellationToken.None);
+        }
         await unitOfWork.SaveChangesAsync(CancellationToken.None);
     }
+
+    private static Task SaveProcessingCheckpointAsync(
+        ICheckpointRepository checkpointRepository,
+        Guid jobRunId,
+        string value,
+        CancellationToken cancellationToken)
+        => checkpointRepository.SaveAsync(
+            new Checkpoint
+            {
+                Id = Guid.NewGuid(),
+                JobRunId = jobRunId,
+                Key = ProcessingCheckpointKey,
+                Value = value,
+                SavedAt = DateTime.UtcNow
+            },
+            cancellationToken);
 
     private static Guid ResolveJobRunId(string messageId)
     {
@@ -993,6 +1076,7 @@ public class ProcessingHandlerService(
     private async Task HandlePoisonMessageAsync(
         IQueueMessage message,
         Guid organizationId,
+        string? correlationId,
         string errorMessage,
         CancellationToken cancellationToken)
     {
@@ -1042,6 +1126,11 @@ public class ProcessingHandlerService(
                         OriginalMessageId = message.MessageId,
                         MessageType = message.MessageType,
                         Payload = message.Payload,
+                        CorrelationId = string.IsNullOrWhiteSpace(
+                            correlationId)
+                            ? message.MessageId
+                            : correlationId,
+                        CausationId = message.MessageId,
                         ErrorCategory =
                             ErrorCategory.ValidationFailure,
                         ErrorMessage = errorMessage,

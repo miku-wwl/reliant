@@ -50,7 +50,12 @@ public interface IDeadLetterRepository
     Task AddAsync(DeadLetterRecord record, CancellationToken cancellationToken = default);
     Task<List<DeadLetterRecord>> ListAsync(Guid organizationId, int limit, CancellationToken cancellationToken = default);
     Task<DeadLetterRecord?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
-    Task MarkAsReplayedAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<bool> TryMarkAsReplayedAsync(
+        Guid id,
+        string replayMessageId,
+        string requestedBy,
+        DateTime replayedAt,
+        CancellationToken cancellationToken = default);
     Task MarkAsIgnoredAsync(Guid id, CancellationToken cancellationToken = default);
 }
 

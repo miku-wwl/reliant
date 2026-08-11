@@ -32,7 +32,7 @@ Silent loss = false
 
 ## 实验信息
 
-- 日期：2026-08-03
+- 日期：2026-08-03；Checkpoint 补全复验：2026-08-11
 - 测试目录：`tests/Reliant.Tests/Integration/Phase2/Exp9/`
 - 测试：
   `Sigterm_ShouldStopNewReceives_ReleaseCurrentWork_AndRecover`
@@ -45,7 +45,7 @@ Silent loss = false
 - SQS Visibility Timeout：5 秒
 - Exp9 专项：1/1 通过
 - Phase 2 Exp1–Exp9：11/11 通过
-- 最终全量：157/157 通过
+- 初次全量：157/157 通过；当前全量结果见 `docs/current-state.md`
 
 ## 我的假设
 
@@ -246,11 +246,11 @@ Idempotency Key 恢复，不会把中断误认为成功。
 ```text
 SIGNAL | Type=SIGTERM | WorkerAExitCode=0 | SignalToExitMs=716
 
-SHUTDOWN | NewWorkAccepted=false | ActiveJob=Pending | ActiveAttempt=Abandoned | ProviderAttempt=Unknown | LeaseActive=false | Acked=false | Checkpoints=0
+SHUTDOWN | NewWorkAccepted=false | ActiveJob=Pending | ActiveAttempt=Abandoned | ProviderAttempt=Unknown | LeaseActive=false | Acked=false | Checkpoint=ProviderOutcomeUnknown
 
 QUEUE | BeforeRestartVisible=1 | BeforeRestartInFlight=1 | RecoverableMessages=2 | FinalDepth=0
 
-RECOVERY | Contributions=2:Succeeded | Inbox=2 | JobAttempts=3 | ProcessingAttempts=3 | ProviderReferences=2 | ActiveLeases=0
+RECOVERY | Contributions=2:Succeeded | Inbox=2 | JobAttempts=3 | ProcessingAttempts=3 | ProviderReferences=2 | ActiveLeases=0 | Checkpoints=2:Completed
 
 RESULT | PASS | SilentLoss=false
 ```
@@ -281,6 +281,7 @@ InFlight = 1
 | Lease | Inactive |
 | Inbox | 0 |
 | ACK | 未执行 |
+| Checkpoint | ProviderOutcomeUnknown |
 
 Contribution 保持 Processing 是有意的。Worker B 收到同一 MessageId 后走
 “redelivery/recovery”入口，不重复执行 Created → Accepted → Processing。
@@ -313,6 +314,7 @@ Contribution 保持 Processing 是有意的。Worker B 收到同一 MessageId �
 | Succeeded ProcessingAttempt | 2 |
 | Active Lease | 0 |
 | Queue Depth | 0 |
+| Checkpoint | 2 × Completed |
 
 三个 Attempt 的原因是：
 
@@ -323,16 +325,23 @@ Message B：Worker B Succeeded
 
 ## Checkpoint 检查的准确结论
 
-当前 Contribution Processing 工作流不是 checkpointed workload，没有在处理过程
-中调用 `ICheckpointRepository`。因此本实验实际检查到：
+补全后，Contribution Processing 在 Provider 调用前保存
+`ProviderSubmissionPending`。SIGTERM 中断 Provider 调用时，同一 JobRun 的断点被
+原子更新为：
 
 ```text
-Checkpoint rows before/after shutdown = 0
+processing-stage = ProviderOutcomeUnknown
 ```
 
-它证明关闭没有留下虚构或陈旧 Checkpoint，但不能证明“从 Checkpoint 继续执行”。
-真正的 checkpoint resume 必须使用会周期性保存进度的长 Job 单独实验，不能把
-`0 rows` 写成该能力已经完成。
+Worker B 获取新 Lease 后读取并记录该断点，然后沿现有安全恢复路径继续：读取
+Contribution/ProcessingAttempt，使用相同 Provider Idempotency Key 提交，成功后把
+断点更新为 `Completed`。测试明确断言 Worker B 日志包含
+`from checkpoint ProviderOutcomeUnknown`，并断言两个 Job 最终各有一条
+`Completed` Checkpoint。
+
+这里的 Checkpoint 是“外部调用阶段断点”，不是百分比进度；Provider 结果未知时仍
+必须依赖 stable key 和 reconciliation/idempotent replay，不能仅凭 Checkpoint 假定
+Provider 未执行。
 
 ## PASS 条件逐项判定
 
@@ -350,6 +359,7 @@ Checkpoint rows before/after shutdown = 0
 | 跟踪并 await in-flight tasks | 生命周期修复 | 否则 Host 可先于清理退出 |
 | Shutdown cancellation 单独分类 | Job 审计修复 | 不能把关闭误记成业务失败 |
 | Provider Attempt 持久化 Unknown | 业务边界审计 | 外部调用中断时结果不能假定 |
+| Provider 阶段 Checkpoint | 恢复语义补全 | 关闭时保存 Unknown，接管者读取并完成 |
 | Sandbox Submit Delay | 测试支撑 | 默认 0，只制造确定性长任务 |
 
 没有修改 Contribution 正常成功/失败状态转换、Retry budget、Inbox dedup、

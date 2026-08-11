@@ -299,10 +299,10 @@ public sealed class GracefulShutdownDockerE2ETests(
                         .IgnoreQueryFilters()
                         .CountAsync(x =>
                             x.JobRunId == untouchedJobId);
-                var checkpointCount =
+                var checkpoints =
                     await db.Checkpoints
                         .IgnoreQueryFilters()
-                        .CountAsync();
+                        .ToListAsync();
 
                 Assert.Equal(
                     ContributionState.Processing,
@@ -313,7 +313,12 @@ public sealed class GracefulShutdownDockerE2ETests(
                 Assert.Equal(0, activeInboxCount);
                 Assert.Equal(0, untouchedInboxCount);
                 Assert.Equal(0, untouchedJobAttemptCount);
-                Assert.Equal(0, checkpointCount);
+                var checkpoint = Assert.Single(checkpoints);
+                Assert.Equal(activeJobId, checkpoint.JobRunId);
+                Assert.Equal("processing-stage", checkpoint.Key);
+                Assert.Equal(
+                    "ProviderOutcomeUnknown",
+                    checkpoint.Value);
             }
 
             Assert.Contains(
@@ -397,6 +402,11 @@ public sealed class GracefulShutdownDockerE2ETests(
                 },
                 TimeSpan.FromSeconds(20));
             Assert.True(queueDrained);
+            var workerBLogs = await GetContainerLogsAsync(workerB);
+            Assert.Contains(
+                "from checkpoint ProviderOutcomeUnknown",
+                workerBLogs,
+                StringComparison.Ordinal);
 
             int finalJobAttemptCount;
             int finalProcessingAttemptCount;
@@ -433,10 +443,13 @@ public sealed class GracefulShutdownDockerE2ETests(
                     await db.Leases
                         .IgnoreQueryFilters()
                         .CountAsync(x => x.IsActive);
-                var checkpointCount =
+                var checkpoints =
                     await db.Checkpoints
                         .IgnoreQueryFilters()
-                        .CountAsync();
+                        .Where(x =>
+                            x.JobRunId == activeJobId ||
+                            x.JobRunId == untouchedJobId)
+                        .ToListAsync();
 
                 finalJobAttemptCount = jobAttempts.Count;
                 finalProcessingAttemptCount =
@@ -466,7 +479,12 @@ public sealed class GracefulShutdownDockerE2ETests(
                             AttemptStatus.Succeeded));
                 Assert.Equal(2, finalReferenceCount);
                 Assert.Equal(0, activeLeaseCount);
-                Assert.Equal(0, checkpointCount);
+                Assert.Equal(2, checkpoints.Count);
+                Assert.All(
+                    checkpoints,
+                    checkpoint => Assert.Equal(
+                        "Completed",
+                        checkpoint.Value));
             }
 
             output.WriteLine(
@@ -475,14 +493,14 @@ public sealed class GracefulShutdownDockerE2ETests(
                 (long)(workerAExitedAt -
                     signalSentAt).TotalMilliseconds);
             output.WriteLine(
-                "SHUTDOWN | NewWorkAccepted=false | ActiveJob=Pending | ActiveAttempt=Abandoned | ProviderAttempt=Unknown | LeaseActive=false | Acked=false | Checkpoints=0");
+                "SHUTDOWN | NewWorkAccepted=false | ActiveJob=Pending | ActiveAttempt=Abandoned | ProviderAttempt=Unknown | LeaseActive=false | Acked=false | Checkpoint=ProviderOutcomeUnknown");
             output.WriteLine(
                 "QUEUE | BeforeRestartVisible={0} | BeforeRestartInFlight={1} | RecoverableMessages={2} | FinalDepth=0",
                 depthBeforeRestart.Visible,
                 depthBeforeRestart.InFlight,
                 depthBeforeRestart.Total);
             output.WriteLine(
-                "RECOVERY | Contributions=2:Succeeded | Inbox=2 | JobAttempts={0} | ProcessingAttempts={1} | ProviderReferences={2} | ActiveLeases=0",
+                "RECOVERY | Contributions=2:Succeeded | Inbox=2 | JobAttempts={0} | ProcessingAttempts={1} | ProviderReferences={2} | ActiveLeases=0 | Checkpoints=2:Completed",
                 finalJobAttemptCount,
                 finalProcessingAttemptCount,
                 finalReferenceCount);

@@ -452,14 +452,26 @@ public class DeadLetterRepository(ReliantDbContext db) : IDeadLetterRepository
         return await db.DeadLetterRecords.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
     }
 
-    public async Task MarkAsReplayedAsync(Guid id, CancellationToken cancellationToken = default)
+    public async Task<bool> TryMarkAsReplayedAsync(
+        Guid id,
+        string replayMessageId,
+        string requestedBy,
+        DateTime replayedAt,
+        CancellationToken cancellationToken = default)
     {
-        await db.DeadLetterRecords
-            .Where(x => x.Id == id)
+        var updated = await db.DeadLetterRecords
+            .Where(x =>
+                x.Id == id &&
+                x.Status == DeadLetterStatus.Pending &&
+                x.ReplayCount < 3)
             .ExecuteUpdateAsync(x => x
                 .SetProperty(p => p.Status, DeadLetterStatus.Replayed)
-                .SetProperty(p => p.ReplayedAt, DateTime.UtcNow)
-                .SetProperty(p => p.ReplayCount, p => p.ReplayCount + 1), cancellationToken);
+                .SetProperty(p => p.ReplayedAt, replayedAt)
+                .SetProperty(p => p.ReplayCount, p => p.ReplayCount + 1)
+                .SetProperty(p => p.ReplayMessageId, replayMessageId)
+                .SetProperty(p => p.ReplayRequestedBy, requestedBy),
+                cancellationToken);
+        return updated == 1;
     }
 
     public async Task MarkAsIgnoredAsync(Guid id, CancellationToken cancellationToken = default)

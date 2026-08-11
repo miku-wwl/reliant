@@ -149,6 +149,8 @@ public class RetrySchedulerService : IRetryScheduler
             OriginalMessageId = contribution.Id.ToString(),
             MessageType = "ContributionRetryExhausted",
             Payload = $"Contribution {contribution.Id} failed after {MaxRetryAttempts} attempts",
+            CorrelationId = contribution.Id.ToString(),
+            CausationId = contribution.Id.ToString(),
             ErrorCategory = contribution.LastErrorCategory,
             ErrorMessage = contribution.LastErrorMessage,
             AttemptCount = contribution.RetryCount,

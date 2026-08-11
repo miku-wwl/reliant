@@ -201,6 +201,8 @@ public class DeadLetterRecord
     public string OriginalMessageId { get; set; } = string.Empty;
     public string MessageType { get; set; } = string.Empty;
     public string Payload { get; set; } = string.Empty;
+    public string CorrelationId { get; set; } = string.Empty;
+    public string? CausationId { get; set; }
     public ErrorCategory? ErrorCategory { get; set; }
     public string? ErrorMessage { get; set; }
     public int AttemptCount { get; set; }
@@ -208,4 +210,6 @@ public class DeadLetterRecord
     public DeadLetterStatus Status { get; set; } = DeadLetterStatus.Pending;
     public DateTime? ReplayedAt { get; set; }
     public int ReplayCount { get; set; }
+    public string? ReplayMessageId { get; set; }
+    public string? ReplayRequestedBy { get; set; }
 }
