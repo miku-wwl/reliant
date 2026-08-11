@@ -68,7 +68,8 @@ public sealed class RawSqsQueueAdapter : IQueueAdapter
             VisibilityTimeout = visibilityTimeoutSeconds,
             WaitTimeSeconds = 5,
             MessageAttributeNames = ["All"],
-            AttributeNames = [MessageSystemAttributeName.ApproximateReceiveCount]
+            MessageSystemAttributeNames =
+                [MessageSystemAttributeName.ApproximateReceiveCount]
         }, cancellationToken);
 
         if (response.Messages.Count == 0) return null;

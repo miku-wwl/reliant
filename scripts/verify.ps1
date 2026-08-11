@@ -2,7 +2,8 @@
 .SYNOPSIS
     Reliant unified verification script (CI + local).
 .DESCRIPTION
-    Runs restore / format check / build / unit / architecture / integration tests.
+    Runs restore / vulnerable-package audit / format check / build / unit /
+    architecture / integration tests.
     Enforces a TEST COUNT GATE: every category must match at least the required
     minimum number of tests, otherwise the run FAILS (a filter that matches 0
     tests can never pass). Produces TRX results, a final-e2e log and a
@@ -56,30 +57,45 @@ Write-Host ""
 # ------------------------------------------------------------------ #
 # 1. Restore
 # ------------------------------------------------------------------ #
-Write-Host "[1/6] Restore..." -ForegroundColor Yellow
+Write-Host "[1/7] Restore..." -ForegroundColor Yellow
 dotnet restore $solution.FullName
 if ($LASTEXITCODE -ne 0) { Write-Host "Restore FAILED" -ForegroundColor Red; exit 1 }
 
 # ------------------------------------------------------------------ #
-# 2. Format check
+# 2. Vulnerable dependency gate
 # ------------------------------------------------------------------ #
-if (-not $SkipFormat) {
-    Write-Host "[2/6] Format check..." -ForegroundColor Yellow
-    dotnet format $solution.FullName --verify-no-changes --verbosity quiet
-    if ($LASTEXITCODE -ne 0) { Write-Host "Format check FAILED" -ForegroundColor Red; exit 1 }
-} else {
-    Write-Host "[2/6] Format check skipped" -ForegroundColor DarkGray
+Write-Host "[2/7] Vulnerable dependency audit..." -ForegroundColor Yellow
+$vulnerabilityReport =
+    dotnet list $solution.FullName package --vulnerable --include-transitive 2>&1
+$vulnerabilityReport |
+    Set-Content -Path (Join-Path $ArtifactDir "vulnerable-packages.txt") -Encoding UTF8
+if ($LASTEXITCODE -ne 0 -or
+    $vulnerabilityReport -match 'NU190[1-4]|GHSA-[0-9a-z-]+') {
+    $vulnerabilityReport | Write-Host
+    Write-Host "Vulnerable dependency audit FAILED" -ForegroundColor Red
+    exit 1
 }
 
 # ------------------------------------------------------------------ #
-# 3. Build
+# 3. Format check
 # ------------------------------------------------------------------ #
-Write-Host "[3/6] Build..." -ForegroundColor Yellow
+if (-not $SkipFormat) {
+    Write-Host "[3/7] Format check..." -ForegroundColor Yellow
+    dotnet format $solution.FullName --verify-no-changes --verbosity quiet
+    if ($LASTEXITCODE -ne 0) { Write-Host "Format check FAILED" -ForegroundColor Red; exit 1 }
+} else {
+    Write-Host "[3/7] Format check skipped" -ForegroundColor DarkGray
+}
+
+# ------------------------------------------------------------------ #
+# 4. Build
+# ------------------------------------------------------------------ #
+Write-Host "[4/7] Build..." -ForegroundColor Yellow
 dotnet build $solution.FullName --no-restore --configuration Debug
 if ($LASTEXITCODE -ne 0) { Write-Host "Build FAILED" -ForegroundColor Red; exit 1 }
 
 # ------------------------------------------------------------------ #
-# 4. Test count gate (discover, do not execute)
+# 5. Test count gate (discover, do not execute)
 # ------------------------------------------------------------------ #
 function Get-DiscoveredTestCount([string]$Filter) {
     $output = dotnet test $testProject.FullName --no-build --list-tests --filter $Filter 2>&1
@@ -96,7 +112,7 @@ function Assert-TestGate([string]$Name, [string]$Filter, [int]$Minimum) {
     return $count
 }
 
-Write-Host "[4/6] Test count gates..." -ForegroundColor Yellow
+Write-Host "[5/7] Test count gates..." -ForegroundColor Yellow
 $unitCount = Assert-TestGate "Unit" "Category=Unit" 1
 $archCount = Assert-TestGate "Architecture" "Category=Architecture" 1
 $pgCount = Assert-TestGate "PostgreSQL Integration" "Category=Integration&Dependency=PostgreSQL" 1
@@ -105,10 +121,10 @@ $httpCount = Assert-TestGate "HttpApi Integration" "Category=Integration&Depende
 $e2eCount = Assert-TestGate "WorkerHost E2E" "Category=Integration&Dependency=WorkerHost" 10
 
 # ------------------------------------------------------------------ #
-# 5. Execute tests with TRX logging
+# 6. Execute tests with TRX logging
 # ------------------------------------------------------------------ #
 function Invoke-Category([string]$Name, [string]$Filter, [string]$TrxName) {
-    Write-Host "[5/6] $Name..." -ForegroundColor Yellow
+    Write-Host "[6/7] $Name..." -ForegroundColor Yellow
     dotnet test $testProject.FullName --no-build --configuration Debug `
         --filter $Filter `
         --logger "trx;LogFileName=$TrxName" `
@@ -120,18 +136,18 @@ Invoke-Category "Unit tests" "Category=Unit" "unit.trx"
 Invoke-Category "Architecture tests" "Category=Architecture" "architecture.trx"
 
 if (-not $SkipIntegration) {
-    Write-Host "[5/6] Integration tests (PostgreSQL + LocalStack + WorkerHost E2E + HttpApi)..." -ForegroundColor Yellow
+    Write-Host "[6/7] Integration tests (PostgreSQL + LocalStack + WorkerHost E2E + HttpApi)..." -ForegroundColor Yellow
     dotnet test $testProject.FullName --no-build --configuration Debug `
         --filter "Category=Integration" `
         --logger "trx;LogFileName=integration.trx" `
         --results-directory $resultsDir 2>&1 | Tee-Object -FilePath (Join-Path $logsDir "final-e2e.log")
     if ($LASTEXITCODE -ne 0) { Write-Host "Integration tests FAILED" -ForegroundColor Red; exit 1 }
 } else {
-    Write-Host "[5/6] Integration tests skipped" -ForegroundColor DarkGray
+    Write-Host "[6/7] Integration tests skipped" -ForegroundColor DarkGray
 }
 
 # ------------------------------------------------------------------ #
-# 6. test-summary.md
+# 7. test-summary.md
 # ------------------------------------------------------------------ #
 $integrationTotal = Get-DiscoveredTestCount -Filter "Category=Integration"
 $total = $unitCount + $archCount + $integrationTotal
@@ -155,7 +171,7 @@ Result: **PASS** - all categories matched their minimum test counts and all exec
 "@
 Set-Content -Path (Join-Path $ArtifactDir "test-summary.md") -Value $summary -Encoding UTF8
 Write-Host ""
-Write-Host "[6/6] Wrote test-summary.md to $ArtifactDir" -ForegroundColor Yellow
+Write-Host "[7/7] Wrote test-summary.md to $ArtifactDir" -ForegroundColor Yellow
 
 Write-Host ""
 Write-Host "=== All checks passed ===" -ForegroundColor Green

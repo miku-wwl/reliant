@@ -121,6 +121,27 @@ public sealed class ProviderBacklogAndRecoveryE2ETests(
             "Five provider 5xx responses did not open the circuit." +
             Environment.NewLine + fixture.RecentLogs(100));
 
+        // Circuit state changes inside SubmitToProviderHandler before the
+        // outer worker transaction persists the matching Contribution state.
+        // Wait for that durable boundary instead of racing an in-memory Open
+        // observation against the fifth RetryPending commit.
+        Assert.True(
+            await WaitUntilAsync(
+                async () =>
+                {
+                    var snapshot = await ReadSnapshotAsync(
+                        fixture.PgConnectionString);
+                    return snapshot.ProcessingAttempts ==
+                            FailureThreshold &&
+                        snapshot.FailedProcessingAttempts ==
+                            FailureThreshold &&
+                        snapshot.RetryPending == FailureThreshold;
+                },
+                TimeSpan.FromSeconds(10)),
+            "Circuit opened before the fifth failure reached its " +
+            "durable RetryPending state." + Environment.NewLine +
+            fixture.RecentLogs(100));
+
         var openSnapshot = await ReadSnapshotAsync(
             fixture.PgConnectionString);
         var openDepth = await GetQueueDepthAsync(sqs, queueUrl);

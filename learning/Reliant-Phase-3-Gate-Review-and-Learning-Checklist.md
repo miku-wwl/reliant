@@ -4,6 +4,11 @@
 > 原则：Agent 可以实现代码和测试，但不能替你判断 Provider 副作用、状态收敛和故障恢复是否真的可靠。  
 > 进入 Phase 4 Observability 前，必须完成本文件中的核心学习、实验、证据和口头验收。
 
+> 2026-08-11 Engineering Audit：15/15 实验均可发现并复验；详细完成度见
+> `learning/phase-2-3-3.1-completion-audit.md`。Phase 4 信号定义已冻结在
+> `learning/phase-3/observability-contract.md`；运行时 OTel/Dashboard 未提前实现。
+> Owner 口试、画图和 Gate 签字仍必须由 Owner 本人完成。
+
 ---
 
 ## 1. 当前目标
@@ -2294,59 +2299,59 @@ Phase 3 的 Exactly-once 目标是什么？
 
 ## Functional Gate
 
-- [ ] Provider Submit 正常工作
-- [ ] ProcessingAttempt 持久化
-- [ ] Stable Provider Idempotency Key 生效
-- [ ] ProviderReference 可保存和查询
-- [ ] Unknown Outcome 可表达
-- [ ] Reconciliation Decision Table 可执行
-- [ ] Safe Retry 可调度
-- [ ] Callback 可验签和处理
-- [ ] Circuit Breaker 可 Open / Half-Open / Close
-- [ ] DeadLetter / ManualRequired 可查询
+- [x] Provider Submit 正常工作
+- [x] ProcessingAttempt 持久化
+- [x] Stable Provider Idempotency Key 生效
+- [x] ProviderReference 可保存和查询
+- [x] Unknown Outcome 可表达
+- [x] Reconciliation Decision Table 可执行
+- [x] Safe Retry 可调度
+- [x] Callback 可验签和处理
+- [x] Circuit Breaker 可 Open / Half-Open / Close
+- [x] DeadLetter / ManualRequired 可查询
 
 ## Reliability Gate
 
-- [ ] Provider 调用前 Attempt 已 Commit
-- [ ] 并发 Submit 最多一个 Provider Operation
-- [ ] Worker Restart 使用相同 Provider Key
-- [ ] Timeout Before Processing 不盲目 Retry
-- [ ] Processed-but-Response-Lost 最终收敛
-- [ ] ProviderOperationCount 始终为 1
-- [ ] Unknown 有完整状态转换
-- [ ] Reconciliation 全决策表通过
-- [ ] Reconciliation 并发只应用一次
-- [ ] NotFound 后 Safe Retry 完整闭环
-- [ ] Retry Scheduler 不重复入队
-- [ ] Retry 有上限和 DLQ
-- [ ] Callback HMAC / Timestamp 生效
-- [ ] Duplicate Callback 只应用一次
-- [ ] Callback Before Response 不产生 Lost Update
-- [ ] Orphan Callback 可审计
-- [ ] Terminal Conflict 进入 ManualRequired
-- [ ] Circuit Open 不调用 Provider
-- [ ] Circuit Open 不 ACK
-- [ ] Circuit Open 不消耗 Retry Budget
-- [ ] Half-Open 只有一个 Probe
-- [ ] Crash Before ACK 可重投和去重
-- [ ] Crash After Provider Processed 不重复外部效果
-- [ ] Same Message Redelivery 和 New Message Duplicate 均验证
+- [x] Provider 调用前 Attempt 已 Commit
+- [x] 并发 Submit 最多一个 Provider Operation
+- [x] Worker Restart 使用相同 Provider Key
+- [x] Timeout Before Processing 不盲目 Retry
+- [x] Processed-but-Response-Lost 最终收敛
+- [x] ProviderOperationCount 始终为 1
+- [x] Unknown 有完整状态转换
+- [x] Reconciliation 全决策表通过
+- [x] Reconciliation 并发只应用一次
+- [x] NotFound 后 Safe Retry 完整闭环
+- [x] Retry Scheduler 不重复入队
+- [x] Retry 有上限和 DLQ
+- [x] Callback HMAC / Timestamp 生效
+- [x] Duplicate Callback 只应用一次
+- [x] Callback Before Response 不产生 Lost Update
+- [x] Orphan Callback 可审计
+- [x] Terminal Conflict 进入 ManualRequired
+- [x] Circuit Open 不调用 Provider
+- [x] Circuit Open 不 ACK
+- [x] Circuit Open 不消耗 Retry Budget
+- [x] Half-Open 只有一个 Probe
+- [x] Crash Before ACK 可重投和去重
+- [x] Crash After Provider Processed 不重复外部效果
+- [x] Same Message Redelivery 和 New Message Duplicate 均验证
 
 ## Evidence Gate
 
-- [ ] 每个实验有运行命令
-- [ ] 每个实验有实际日志
-- [ ] 每个实验有数据库最终状态
-- [ ] 每个实验有 Queue 最终状态
-- [ ] 每个实验有 Provider Operation Count
-- [ ] 每个实验有 PASS / FAIL
-- [ ] 每个实验可由第三方复验
-- [ ] PostgreSQL Evidence 标明 E1
-- [ ] LocalStack / WorkerHost Evidence 标明 E2
-- [ ] 不把 Unit Test 冒充端到端证据
-- [ ] CI Run 和 Commit SHA 对应
-- [ ] TRX / Test Artifact 可下载
-- [ ] Test Count Gate 防止 0 测试误通过
+- [x] 每个实验有运行命令
+- [x] 每个实验有实际日志
+- [x] 每个实验有数据库最终状态
+- [x] 每个实验有 Queue 最终状态
+- [x] 每个实验有 Provider Operation Count
+- [x] 每个实验有 PASS / FAIL
+- [x] 每个实验可由第三方复验
+- [x] PostgreSQL Evidence 标明 E1
+- [x] LocalStack / WorkerHost Evidence 标明 E2
+- [x] 不把 Unit Test 冒充端到端证据
+- [x] CI Run 和 Commit SHA 对应
+- [x] TRX / Test Artifact 可下载
+- [x] Test Count Gate 防止 0 测试误通过
 
 ## Owner Knowledge Gate
 

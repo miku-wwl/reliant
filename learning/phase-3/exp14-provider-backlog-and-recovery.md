@@ -205,6 +205,17 @@ src/ 修改文件：0
 采样和最终断言都直接对应 Checklist。没有发现可删除的生产修改，也没有保留调试分支、临时开关
 或模拟 PASS 的断言。
 
+### 2026-08-11 全量回归中的测试竞态修正
+
+一次全量运行观察到 Circuit 已 Open、ProcessingAttempt/FailedAttempt 都是 5，
+但 RetryPending 暂时只有 4。根因是 Circuit 在 Provider handler 内先变为 Open，
+第 5 个 Contribution 的 RetryPending 由外层 Worker 事务稍后提交。原测试在看到
+内存 Open 后立即读数据库，错误地把两个不同持久化时点当成一个原子快照。
+
+修正只发生在测试：看到 Open 后继续等待第 5 个失败的 ProcessingAttempt 和
+RetryPending 都持久化，再执行原有精确断言。没有把阈值断言放宽，也没有修改
+CircuitBreaker 或 Worker 业务代码。
+
 ## 最终报告
 
 Experiment 14 证明了 Provider 故障下的完整压力控制链：Circuit 在有限失败后阻止后续调用，

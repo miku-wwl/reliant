@@ -17,9 +17,13 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Verify (restore, format, build, unit, architecture, integration)
+      - name: Verify (dependencies, format, build, tests)
         shell: pwsh
         run: ./scripts/verify.ps1
+
+      - name: Verify Phase 2 and Phase 3 experiment inventory
+        shell: pwsh
+        run: ./scripts/verify-experiments.ps1 -SkipBuild
 
       - name: Upload test artifacts
         if: always()
@@ -30,5 +34,7 @@ jobs:
             artifacts/test-results/*.trx
             artifacts/logs/*.log
             artifacts/test-summary.md
+            artifacts/experiment-summary.md
+            artifacts/vulnerable-packages.txt
           if-no-files-found: error
           retention-days: 30

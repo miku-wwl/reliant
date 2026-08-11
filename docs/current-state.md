@@ -1,14 +1,14 @@
 # Reliant - Current State
 
-> 最后更新：Phase 3 Experiment 15（Operational History Retention）—
-> Local Verified；Phase 3.1 CI baseline 仍为 Completed
+> 最后更新：Phase 2/3/3.1 Completion Audit（2026-08-11）—
+> Local Verified；最终补全提交的 CI Evidence 待 push 后绑定
 
 ## Phase 3.1 状态
 
 ```text
 Phase 3.1 — Completed
 
-All 10 Final Gates PASS (146 tests) with CI evidence:
+All 10 Final Gates PASS. Historical 146-test baseline:
 Outbox -> SQS -> Worker -> Provider -> Reconciliation -> Callback proven
 end-to-end over PostgreSQL (Testcontainers) + LocalStack SQS + a real worker host.
 
@@ -16,15 +16,20 @@ Evidence pack: docs/evidence/phase-3.1/
 CI evidence: docs/evidence/phase-3.1/ci-run.md
 ```
 
-当前工作树在 Phase 3.1 基线上完成了 Phase 2 Exp1–Exp12，并完成 Phase 3
-Exp1–Exp15 Owner Experiments。最新本地全量结果：
+当前 main 基线 `8c154c2` 已有 162-test GitHub Actions Success
+（run 31399285542）。本轮在该基线上补全 Dead-letter Replay、Checkpoint、
+实验 discovery 和依赖安全 Gate。最新本地全量结果：
 
 ```text
-162 passed, 0 failed, 0 skipped
+163 passed, 0 failed, 0 skipped
+0 build warnings
+0 known vulnerable packages
+Phase 2 Exp1–Exp12: 16 executable tests / 12 reports
+Phase 3 Exp1–Exp15: 25 executable tests / 15 reports
 ```
 
-新增代码 push 后需要重新取得 GitHub Actions CI evidence；原 146-test CI
-记录保留为 Phase 3.1 历史基线。
+最终补全提交 push 后需要重新取得 GitHub Actions CI evidence；146-test 和
+162-test 记录保留为历史基线，不冒充本轮 163-test SHA。
 
 ## 当前能力状态
 
@@ -49,9 +54,11 @@ Exp1–Exp15 Owner Experiments。最新本地全量结果：
 | Crash Recovery | Implemented | Verified | Fault Injection + CrashRecoveryTests |
 | JobRun / JobAttempt / Lease | Implemented | Verified | learning/phase-2/exp5-lease-expiry.md |
 | Poison Message / Native SQS DLQ | Implemented | Verified | learning/phase-2/exp6-poison-message.md |
+| Controlled Dead-letter Replay | Implemented | Verified | Exp6：explicit claim + Outbox + Audit |
 | Retry Exhaustion / Backoff / Jitter | Implemented | Verified | learning/phase-2/exp7-retry-exhaustion.md |
 | Broker Outage / Outbox Recovery | Implemented | Verified | learning/phase-2/exp8-broker-temporarily-unavailable.md |
 | Processing Worker Graceful Shutdown | Implemented | Verified | learning/phase-2/exp9-graceful-shutdown.md |
+| Processing Checkpoint Resume | Implemented | Verified | Exp9：ProviderOutcomeUnknown → Completed |
 | Backlog Growth / Scale-out Recovery | Implemented | Verified | learning/phase-2/exp10-backlog-growth-and-recovery.md |
 | Stale Owner Fencing Token | Implemented | Verified | learning/phase-2/exp11-stale-owner-fencing.md |
 | SQS Visibility + Lease Heartbeat | Implemented | Verified | learning/phase-2/exp12-sqs-visibility-heartbeat.md |
@@ -80,9 +87,11 @@ Exp1–Exp15 Owner Experiments。最新本地全量结果：
 | Real AWS E4 Smoke | Not Started | Not Started | - |
 | Azure Backup/Restore | Not Started | Not Started | - |
 | CI Pipeline | Implemented | Verified | GitHub Actions CI |
+| Experiment Discovery Gate | Implemented | Verified | scripts/verify-experiments.ps1 |
+| Vulnerable Dependency Gate | Implemented | Verified | scripts/verify.ps1 |
 | Architecture Tests | Implemented | Verified | 5 Architecture tests |
 | Terraform 基线 | Implemented | Verified | Phase 0 Stage D |
-| reliantctl CLI | Skeleton | Not Started | - |
+| reliantctl CLI | Partial | Verified for inspect/list/replay | Controlled Replay E1 + CLI help |
 
 ## 规则
 
@@ -94,9 +103,12 @@ Exp1–Exp15 Owner Experiments。最新本地全量结果：
 
 - Unit Tests: 65
 - Architecture Tests: 5
-- PostgreSQL Integration Tests: 84
-- LocalStack Integration Tests: 32
+- PostgreSQL Integration Tests: 85
+- LocalStack Integration Tests: 35
 - HTTP API Integration Tests: 10
-- WorkerHost End-to-End Tests: 26
-- Integration Tests Total: 92
-- Total Tests: 162
+- WorkerHost End-to-End Tests: 23
+- Integration Tests Total: 93
+- Total Tests: 163
+
+Dependency filters overlap（例如 WorkerHost E2E 同时计入 PostgreSQL 和
+LocalStack），不能把 85、35、10、23 相加当作 Integration Total。

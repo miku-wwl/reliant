@@ -4,6 +4,10 @@
 > 原则：Agent 可以实现代码，但不能替你判断系统是否真的可靠。  
 > 进入 Phase 3 前，必须完成本文件中的核心学习、实验和验收。
 
+> 2026-08-11 Engineering Audit：12/12 实验均可发现并复验；补全报告见
+> `learning/phase-2-3-3.1-completion-audit.md`。下方机器可验证项已按代码和
+> Evidence 更新；Owner 口试、本人执行和 Gate 签字仍保留未勾选。
+
 ---
 
 ## 1. 当前目标
@@ -284,17 +288,17 @@ Worker 被 kill、OOM、进程崩溃后，系统依然能够重新处理任务�
 
 ### 必须在代码中找到
 
-- [ ] Job 如何从 Pending 进入 Processing
-- [ ] WorkerId / LockedBy
-- [ ] LockedUntil / LeaseExpiry
-- [ ] 原子领取任务的实现
-- [ ] 两个 Worker 是否可能同时领取同一任务
-- [ ] Heartbeat 更新机制
-- [ ] Lease 续租机制
-- [ ] Lease 过期任务如何重新发现
-- [ ] Checkpoint 是否持久化
-- [ ] Worker 重启后如何恢复 Attempt
-- [ ] Graceful Shutdown 与强制 Crash 是否分别验证
+- [x] Job 如何从 Pending 进入 Processing（JobRun.StartAttempt）
+- [x] WorkerId / LockedBy（JobAttempt.WorkerId / Lease.WorkerId）
+- [x] LockedUntil / LeaseExpiry（Lease.ExpiresAt）
+- [x] 原子领取任务的实现（LeaseRepository.TryAcquireAsync）
+- [x] 两个 Worker 是否可能同时领取同一任务（唯一 Active Lease + Exp5/11）
+- [x] Heartbeat 更新机制（ProcessingHandlerService.HeartbeatLoop）
+- [x] Lease 续租机制（LeaseRepository.RenewAsync）
+- [x] Lease 过期任务如何重新发现（Scheduled Maintenance + Exp5）
+- [x] Checkpoint 是否持久化（Exp9 补全）
+- [x] Worker 重启后如何恢复 Attempt（Exp4/5/9）
+- [x] Graceful Shutdown 与强制 Crash 是否分别验证（Exp9 / Exp4）
 
 ### 重点
 
@@ -356,7 +360,7 @@ Broker 暂时不可用
 - [x] Backoff 计算（Exp7：1s / 2s / 4s / 8s）
 - [x] Jitter 计算（Exp7：每次 0–1s）
 - [x] Retry Attempt 是否持久化（Exp7：ProcessingAttempt 1–5）
-- [ ] Worker 重启后是否保留 Attempt
+- [x] Worker 重启后是否保留 Attempt（JobAttempt 持久化，Exp4/5/9）
 - [x] Permanent Failure 是否跳过无意义重试（RetryPolicyTests）
 - [x] Retry Exhaustion 后进入什么状态（Failed + DeadLettered）
 - [x] 是否存在无限重试路径（Exp7 终态后稳定性检查）
@@ -392,15 +396,15 @@ Payload 无法反序列化
 - [x] Poison 接收达到上限后是否进入 DLQ（Exp6）
 - [x] 原始 Payload 是否保存（Exp6）
 - [x] MessageId 是否保存（Exp6）
-- [ ] CorrelationId / CausationId 是否保存
+- [x] CorrelationId / CausationId 是否保存（Exp6 Replay 补全）
 - [x] 最后一次错误是否保存（Exp6）
 - [x] Attempt Count 是否保存（Exp6）
 - [x] Dead-letter 是否可通过数据库查询（Exp6）
 - [x] Dead-letter 是否可审计（Exp6）
-- [ ] Replay 是否要求明确操作
-- [ ] Replay 是否可能绕过 Inbox
-- [ ] Replay 是否生成新 MessageId
-- [ ] 修复前重复 Replay 是否会造成噪声或事故
+- [x] Replay 是否要求明确操作（CLI --operator + --confirm）
+- [x] Replay 是否可能绕过 Inbox（新 MessageId 会创建新 Inbox；仍受业务状态和 Provider Key 保护）
+- [x] Replay 是否生成新 MessageId（ReplayMessageId + Outbox）
+- [x] 修复前重复 Replay 是否会造成噪声或事故（Pending 原子 claim 拒绝第二次操作）
 
 ### CLI 目标
 
@@ -1053,10 +1057,10 @@ evidence/
 ## DLQ
 
 - [ ] 原始 Payload 可审计
-- [ ] MessageId / CorrelationId 保存
+- [x] MessageId / CorrelationId 保存（Exp6）
 - [ ] 错误原因保存
-- [ ] Replay 需要明确操作
-- [ ] Replay 不绕过幂等保护
+- [x] Replay 需要明确操作（--operator + --confirm）
+- [x] Replay 不绕过幂等保护（新 Inbox + 业务状态 + Stable Provider Key）
 - [ ] Poison Message 不阻塞正常消息
 
 ## Lease / Heartbeat / Checkpoint
@@ -1066,7 +1070,7 @@ evidence/
 - [x] Heartbeat 可更新
 - [x] Heartbeat 失败行为明确（Exp12）
 - [x] Lease 过期可接管
-- [ ] Checkpoint 持久化
+- [x] Checkpoint 持久化（Exp9：Unknown → Resume → Completed）
 - [x] Worker Crash 后恢复已验证
 
 ---
@@ -1232,38 +1236,38 @@ Lease 过期
 
 ## Functional Gate
 
-- [ ] API → DB → Outbox → Queue → Worker 链路运行
-- [ ] Queue Adapter 可以在 LocalStack SQS 工作
-- [ ] Inbox / Idempotency 生效
+- [x] API → DB → Outbox → Queue → Worker 链路运行
+- [x] Queue Adapter 可以在 LocalStack SQS 工作
+- [x] Inbox / Idempotency 生效
 - [x] Job / Attempt / Lease / Heartbeat 数据可查询
 - [x] Retry 与 DLQ 工作
-- [ ] CLI 可以查询 Job 和 Dead-letter
+- [x] CLI 可以查询 Job 和 Dead-letter
 
 ## Reliability Gate
 
 - [x] DB 状态和 Outbox 原子提交
-- [ ] Duplicate Publish 不产生重复业务结果
-- [ ] Duplicate Delivery 不产生重复业务结果
-- [ ] Worker Crash 后任务可恢复
+- [x] Duplicate Publish 不产生重复业务结果
+- [x] Duplicate Delivery 不产生重复业务结果
+- [x] Worker Crash 后任务可恢复
 - [x] Lease Expiry 后其他 Worker 可接管
 - [x] Poison Message 不阻塞正常队列
 - [x] Retry 有分类、上限、Backoff 和 Jitter
 - [x] Retry Exhaustion 有明确终态
-- [ ] Dead-letter 可审计和受控 Replay
-- [ ] Broker 暂时不可用时消息不会静默丢失
-- [ ] Graceful Shutdown 有独立 Evidence
-- [ ] Backlog Growth 和 Recovery 有测试
+- [x] Dead-letter 可审计和受控 Replay
+- [x] Broker 暂时不可用时消息不会静默丢失
+- [x] Graceful Shutdown 有独立 Evidence
+- [x] Backlog Growth 和 Recovery 有测试
 
 ## Evidence Gate
 
-- [ ] 每个实验有运行命令
-- [ ] 每个实验有实际日志
-- [ ] 每个实验有数据库最终状态
-- [ ] 每个实验有 Queue / DLQ 最终状态
-- [ ] 每个实验有 PASS / FAIL
-- [ ] 每个实验可由第三方复验
-- [ ] LocalStack Evidence 明确标记为 E2
-- [ ] 不把 Mock 或单元测试冒充集成证据
+- [x] 每个实验有运行命令
+- [x] 每个实验有实际日志
+- [x] 每个实验有数据库最终状态
+- [x] 每个实验有 Queue / DLQ 最终状态
+- [x] 每个实验有 PASS / FAIL
+- [x] 每个实验可由第三方复验
+- [x] LocalStack Evidence 明确标记为 E2
+- [x] 不把 Mock 或单元测试冒充集成证据
 
 ## Owner Knowledge Gate
 
@@ -1287,17 +1291,17 @@ Lease 过期
 进入 Phase 3 前，不需要实现以下功能，但 Phase 2 不能把架构写死。
 
 - [x] Message 有稳定 MessageId
-- [ ] 有 CorrelationId
-- [ ] 有 CausationId 或明确的因果关系表达
+- [x] 有 CorrelationId
+- [x] 有 CausationId 或明确的因果关系表达
 - [x] JobAttempt 可持久化
-- [ ] Handler 可以表达不同 Error Category
-- [ ] Queue Adapter 不耦合具体 Provider
-- [ ] Reconciliation Handler 可以继续扩展
-- [ ] Processing 状态机允许新增 Unknown 路径
-- [ ] Retry 逻辑可以区分 Unknown Outcome
-- [ ] Checkpoint 可以记录 Provider 阶段
-- [ ] Phase 3 可以增加 ProviderReference
-- [ ] Phase 3 可以增加 ReconciliationRecord
+- [x] Handler 可以表达不同 Error Category
+- [x] Queue Adapter 不耦合具体 Provider
+- [x] Reconciliation Handler 可以继续扩展
+- [x] Processing 状态机允许新增 Unknown 路径
+- [x] Retry 逻辑可以区分 Unknown Outcome
+- [x] Checkpoint 可以记录 Provider 阶段（Exp9 补全）
+- [x] Phase 3 可以增加 ProviderReference
+- [x] Phase 3 可以增加 ReconciliationRecord
 
 ---
 
