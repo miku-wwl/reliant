@@ -1,7 +1,7 @@
 # Phase 3.1 Evidence Pack
 
 > Evidence Level: E1 (Testcontainers PostgreSQL) + E2 (LocalStack SQS + WorkerHost E2E)
-> Current implementation baseline: `3dc26f9`; GitHub Actions run `31446024186`.
+> Current implementation baseline: `817436b`; GitHub Actions run `31447327012`.
 > Status: **Phase 3.1 — Completed** (all 10 Final Gates PASS, current CI evidence present).
 
 ## Test Counts (scripts/verify.ps1 gates)

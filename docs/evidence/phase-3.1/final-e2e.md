@@ -55,17 +55,17 @@ NoDeadLetter
 ## Observed result
 
 The original 10 Phase 3.1 E2E scenarios still pass together. The current
-WorkerHost-filtered suite has expanded to 23 tests; CI run `31446024186`
+WorkerHost-filtered suite has expanded to 23 tests; CI run `31447327012`
 completed 163/163 repository tests with 0 failures and 0 skipped tests.
 
 ## Commit SHA
 
 Commits 13-17 (`03bbeb5` ... `8b95c0d`); re-verified with the expanded suite at
-implementation commit `3dc26f9`.
+implementation commit `817436b`.
 
 ## CI run
 
-GitHub Actions `CI` run `31446024186` (see `ci-run.md`).
+GitHub Actions `CI` run `31447327012` (see `ci-run.md`).
 
 ## Limitations
 

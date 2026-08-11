@@ -16,8 +16,8 @@ Evidence pack: docs/evidence/phase-3.1/
 CI evidence: docs/evidence/phase-3.1/ci-run.md
 ```
 
-补全实现基线 `3dc26f9` 已通过 GitHub Actions
-[run 31446024186](https://github.com/miku-wwl/reliant/actions/runs/31446024186)。
+补全实现基线 `817436b` 已通过 GitHub Actions
+[run 31447327012](https://github.com/miku-wwl/reliant/actions/runs/31447327012)。
 本轮在原基线上补全 Dead-letter Replay、Checkpoint、实验 discovery 和依赖安全
 Gate。CI 结果：
 
@@ -30,7 +30,7 @@ Phase 3 Exp1–Exp15: 25 executable tests / 15 reports
 ```
 
 146-test 和 162-test 记录仅作为 Historical Baseline 保留，不冒充本轮
-`3dc26f9` 的 163-test CI Evidence。
+`817436b` 的 163-test CI Evidence。
 
 ## 当前能力状态
 

@@ -10,7 +10,7 @@
 | --- | ---: | ---: | ---: | --- |
 | Phase 2 | 12/12 | 16 | 12/12 | 软件与 E2 实验完整；Owner Gate 仍需本人签发 |
 | Phase 3 | 15/15 | 25 | 15/15 | 软件与 E1/E2 实验完整；Owner Gate 仍需本人签发 |
-| Phase 3.1 | 10 Gates | 163/163 | Evidence Pack 完整 | `3dc26f9` CI SUCCESS |
+| Phase 3.1 | 10 Gates | 163/163 | Evidence Pack 完整 | `817436b` CI SUCCESS |
 
 截至本次审计，没有发现“目录存在但零测试”“有清单但没有报告”或“报告存在但
 测试命名空间无法发现”的 Phase 2 / Phase 3 实验。
@@ -130,8 +130,8 @@
 
 ## 5. Phase 3.1 审计
 
-Phase 3.1 的 10 个 Final Gates 已重新绑定到补全实现提交 `3dc26f9`；GitHub
-Actions run `31446024186` 成功。CI 验证 163/163、0 build warning、0 known
+Phase 3.1 的 10 个 Final Gates 已重新绑定到补全实现提交 `817436b`；GitHub
+Actions run `31447327012` 成功。CI 验证 163/163、0 compiler warning、0 known
 vulnerable package，并上传 TRX、实验发现摘要和依赖审计。原 146-test 与
 162-test 结果保留为历史基线，不再作为当前 SHA 的证明。
 
@@ -166,7 +166,7 @@ vulnerable package，并上传 TRX、实验发现摘要和依赖审计。原 146
 
 ## 7. Gate 建议
 
-- 软件 Gate：PASS，以 `3dc26f9`、CI run `31446024186` 和 163/163 为准。
+- 软件 Gate：PASS，以 `817436b`、CI run `31447327012` 和 163/163 为准。
 - Phase 2 Owner Gate：VALIDATION，等待 Owner 本人复现关键实验并签字。
 - Phase 3 Owner Gate：VALIDATION，等待 Owner 口试、图和签字。
 - Phase 3.1 Engineering Gate：Completed。

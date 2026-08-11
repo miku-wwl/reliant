@@ -1,7 +1,7 @@
 # Phase 3.1 Evidence - Test Summary
 
 > Evidence Level: E1 (Testcontainers PostgreSQL) + E2 (LocalStack SQS + WorkerHost E2E)
-> Current baseline: `3dc26f9`, CI run `31446024186`. Counts match
+> Current baseline: `817436b`, CI run `31447327012`. Counts match
 > `scripts/verify.ps1` gates.
 
 ## Test Summary
@@ -25,7 +25,7 @@ integration tests and are not additive.
 The inventory below records the original 146-test Phase 3.1 closure. The
 current repository has additional Phase 2/3 experiment tests; the authoritative
 current inventory is the CI-generated `test-summary.md` and
-`experiment-summary.md` attached to run `31446024186`.
+`experiment-summary.md` attached to run `31447327012`.
 
 ### Test Files (Integration + E2E)
 

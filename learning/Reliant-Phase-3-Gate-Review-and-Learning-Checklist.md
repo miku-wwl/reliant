@@ -1805,7 +1805,7 @@ Hosted：ScheduledMaintenance Enabled 后自动清理过期 Outbox
 ```
 
 > 当前补全审计：Exp15 仍为 1/1；仓库扩展全量为 163/163，GitHub Actions
-> run 31446024186 PASS。162/162 保留为 Exp15 首次完成时的历史快照。
+> run 31447327012 PASS。162/162 保留为 Exp15 首次完成时的历史快照。
 
 聚合实验报告：
 [`learning/phase-3/exp15-operational-history-retention.md`](phase-3/exp15-operational-history-retention.md)
