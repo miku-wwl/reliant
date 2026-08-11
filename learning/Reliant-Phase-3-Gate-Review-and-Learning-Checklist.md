@@ -1812,71 +1812,24 @@ Hosted：ScheduledMaintenance Enabled 后自动清理过期 Outbox
 
 ---
 
-# 6. Evidence 目录建议
+# 6. Evidence 保存规则
+
+Phase 3 使用一实验一报告和一份聚合 Phase 3.1 Evidence：
 
 ```text
-docs/learning/phase-3/
-├── gate-summary.md
-├── test-matrix.md
-├── code-map.md
-├── state-machine.md
-├── provider-key-lifecycle.md
-├── error-decision-table.md
-├── reconciliation-decision-table.md
-├── callback-conflict-table.md
-├── experiment-01-happy-path/
-│   ├── hypothesis.md
-│   ├── commands.md
-│   ├── timeline.md
-│   ├── database-before.txt
-│   ├── database-after.txt
-│   ├── queue-state.txt
-│   ├── provider-state.txt
-│   ├── logs.txt
-│   └── result.md
-├── experiment-02-timeout-before-processing/
-├── experiment-03-response-lost/
-├── experiment-04-same-message-redelivery/
-├── experiment-05-new-message-same-contribution/
-├── experiment-06-provider-crash-recovery/
-├── experiment-07-callback-security/
-├── experiment-08-duplicate-callback/
-├── experiment-09-callback-ordering/
-├── experiment-10-concurrent-reconciliation/
-├── experiment-11-circuit-open/
-├── experiment-12-terminal-conflict/
-├── experiment-13-retry-exhaustion/
-├── experiment-14-backlog-recovery/
-└── experiment-15-retention-capacity/
+learning/phase-3/exp1-*.md
+...
+learning/phase-3/exp15-*.md
+docs/evidence/phase-3.1.md
 ```
 
-每个实验至少保存：
-
-- [ ] 实验日期和时间
-- [ ] Commit SHA
-- [ ] Provider Mode
-- [ ] OrganizationId
-- [ ] ContributionId
-- [ ] CorrelationId
-- [ ] ProviderIdempotencyKey
-- [ ] 运行命令
-- [ ] 初始状态
-- [ ] 故障注入动作
-- [ ] API Request / Response
-- [ ] Worker 日志
-- [ ] Provider 日志
-- [ ] SQS 状态
-- [ ] Contribution 记录
-- [ ] ProcessingAttempt 记录
-- [ ] ProviderReference 记录
-- [ ] Inbox 记录
-- [ ] StateTransition 记录
-- [ ] ReconciliationRecord 记录
-- [ ] DeadLetterRecord 记录
-- [ ] 最终 ProviderOperationCount
-- [ ] 实际结果
-- [ ] PASS / FAIL
-- [ ] Known Limitation
+- [x] 每个实验恰好一份聚合报告
+- [x] 报告包含假设、命令、时间线、关键日志和各系统最终状态
+- [x] ProviderOperationCount、状态转换和限制写入同一报告
+- [x] 原始 TRX、长日志和生成摘要由 CI Artifact 保存
+- [x] Phase 3.1 Gate、CI、E2E 和限制聚合为一份 Evidence
+- [x] `scripts/verify-experiments.ps1` 阻止零测试和缺报告
+- [x] 不再为一个实验创建多个碎片文件或空目录
 
 ---
 

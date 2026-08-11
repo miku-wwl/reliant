@@ -12,8 +12,8 @@ All 10 Final Gates PASS. Current 163-test baseline:
 Outbox -> SQS -> Worker -> Provider -> Reconciliation -> Callback proven
 end-to-end over PostgreSQL (Testcontainers) + LocalStack SQS + a real worker host.
 
-Evidence pack: docs/evidence/phase-3.1/
-CI evidence: docs/evidence/phase-3.1/ci-run.md
+Evidence pack: docs/evidence/phase-3.1.md
+Phase 4 plan: learning/Reliant-Phase-4-Gate-Review-and-Learning-Checklist.md
 ```
 
 补全实现基线 `817436b` 已通过 GitHub Actions

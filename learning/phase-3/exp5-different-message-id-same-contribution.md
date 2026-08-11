@@ -171,7 +171,7 @@ Queue Send/Receive/Delete = 2/2/2
 完整覆盖后两个测试，并额外验证两套 Outbox、Inbox、JobRun、Queue 操作和状态转换
 不增加。因此删除旧文件不会丢失行为覆盖，反而减少三个重复测试和一个根目录文件。
 
-`docs/evidence/phase-3.1/` 和早期 Phase 2 报告仍保留旧测试名，因为它们记录的是对应
+`docs/evidence/phase-3.1.md` 和早期 Phase 2 报告仍保留旧测试名，因为它们记录的是对应
 历史 commit 的 CI/学习证据；当前可执行入口以 `Phase3/Exp4` 和 `Phase3/Exp5` 为准。
 
 现有生产代码已满足 Exp5：

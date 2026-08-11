@@ -963,45 +963,23 @@ Phase 2 Exp1–Exp12：15/15 通过
 
 ---
 
-# 6. Evidence 目录建议
+# 6. Evidence 保存规则
+
+Phase 2 使用聚合报告，避免把一个实验拆成 commands、logs、database-before、
+database-after 和 result 等大量文件：
 
 ```text
-evidence/
-└── phase-2/
-    ├── gate-summary.md
-    ├── test-matrix.md
-    ├── outbox-publisher-crash/
-    │   ├── commands.md
-    │   ├── expected.md
-    │   ├── logs.txt
-    │   ├── database-before.txt
-    │   ├── database-after.txt
-    │   └── result.json
-    ├── duplicate-publish/
-    ├── duplicate-delivery/
-    ├── worker-crash-redelivery/
-    ├── lease-expiry/
-    ├── poison-message-dlq/
-    ├── retry-exhaustion/
-    ├── broker-unavailable/
-    ├── graceful-shutdown/
-    ├── backlog-recovery/
-    ├── stale-owner-fencing/
-    └── sqs-visibility-heartbeat/
+learning/phase-2/exp1-*.md
+...
+learning/phase-2/exp12-*.md
 ```
 
-每个实验至少保存：
-
-- [ ] 运行命令
-- [ ] 开始时间
-- [ ] 初始状态
-- [ ] 故障注入动作
-- [ ] 关键日志
-- [ ] 数据库最终状态
-- [ ] Queue / DLQ 最终状态
-- [ ] 实际结果
-- [ ] PASS / FAIL
-- [ ] Known Limitation
+- [x] 每个实验恰好一份聚合报告
+- [x] 报告包含命令、中间过程、日志摘要、数据库/Queue 状态和 PASS/FAIL
+- [x] 原始 TRX 和长日志由 CI Artifact 保存
+- [x] 当前总测试数只引用 `docs/current-state.md`
+- [x] `scripts/verify-experiments.ps1` 阻止零测试和缺报告
+- [x] 不再创建空 Evidence 目录或碎片化文本文件
 
 ---
 
