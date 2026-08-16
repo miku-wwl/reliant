@@ -14,3 +14,6 @@ All 10 Final Gates PASS with current CI evidence (163 tests). See
 
 Phase 4 learning and experiment design:
 [`learning/Reliant-Phase-4-Gate-Review-and-Learning-Checklist.md`](learning/Reliant-Phase-4-Gate-Review-and-Learning-Checklist.md).
+
+Owner learning path:
+[`learning/README.md`](learning/README.md).
