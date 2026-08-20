@@ -3,6 +3,7 @@ using Reliant.Application.Dto;
 using Reliant.Domain.Entities;
 using Reliant.Domain.Enums;
 using MediatR;
+using System.Diagnostics;
 using System.Text.Json;
 
 namespace Reliant.Application.Contributions.Commands;
@@ -98,6 +99,9 @@ public class CreateContributionHandler(
             ChangedBy = tenantContext.UserId?.ToString() ?? "system"
         };
 
+        var correlationId = tenantContext.CorrelationId ??
+            Activity.Current?.TraceId.ToString() ??
+            Guid.NewGuid().ToString();
         var auditEvent = new AuditEvent
         {
             Id = Guid.NewGuid(),
@@ -106,7 +110,7 @@ public class CreateContributionHandler(
             EntityId = contribution.Id,
             Action = "Create",
             ChangedBy = tenantContext.UserId?.ToString() ?? "system",
-            CorrelationId = tenantContext.CorrelationId ?? Guid.NewGuid().ToString(),
+            CorrelationId = correlationId,
             NewValues = $"Amount:{contribution.Amount} {contribution.Currency}"
         };
 
@@ -125,8 +129,10 @@ public class CreateContributionHandler(
                 ContributionId: contribution.Id,
                 OrganizationId: contribution.OrganizationId,
                 Trigger: "Created",
-                CorrelationId: tenantContext.CorrelationId ?? Guid.NewGuid().ToString())),
-            CorrelationId = tenantContext.CorrelationId ?? Guid.NewGuid().ToString(),
+                CorrelationId: correlationId)),
+            CorrelationId = correlationId,
+            TraceParent = Activity.Current?.Id,
+            TraceState = Activity.Current?.TraceStateString,
             OccurredAt = DateTime.UtcNow,
             Status = OutboxStatus.Pending,
             Version = 0

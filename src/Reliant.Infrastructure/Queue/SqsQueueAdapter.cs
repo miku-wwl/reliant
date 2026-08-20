@@ -3,6 +3,8 @@ using Amazon.SQS;
 using Amazon.SQS.Model;
 using Microsoft.Extensions.Configuration;
 using Reliant.Application.Abstractions;
+using Reliant.Application.Observability;
+using Reliant.Infrastructure.Observability;
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
@@ -19,9 +21,13 @@ public class SqsQueueAdapter : IQueueAdapter
     private readonly ConcurrentDictionary<string, string> _queueUrls =
         new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _queueProvisioningGate = new(1, 1);
+    private readonly QueueAvailabilityState _availability;
 
-    public SqsQueueAdapter(IConfiguration configuration)
+    public SqsQueueAdapter(
+        IConfiguration configuration,
+        QueueAvailabilityState? availability = null)
     {
+        _availability = availability ?? new QueueAvailabilityState();
         var endpoint = configuration["Queue:Endpoint"] ?? "http://localhost:4566";
         var region = configuration["Queue:Region"] ?? "us-west-1";
         var requestTimeoutSeconds =
@@ -85,6 +91,7 @@ public class SqsQueueAdapter : IQueueAdapter
     {
         if (_queueUrls.TryGetValue(queueName, out var cachedQueueUrl))
         {
+            _availability.RecordSuccess();
             return cachedQueueUrl;
         }
 
@@ -137,7 +144,13 @@ public class SqsQueueAdapter : IQueueAdapter
                 requestToken);
 
             _queueUrls[queueName] = queueUrl;
+            _availability.RecordSuccess();
             return queueUrl;
+        }
+        catch (Exception exception)
+        {
+            _availability.RecordFailure(exception);
+            throw;
         }
         finally
         {
@@ -180,23 +193,34 @@ public class SqsQueueAdapter : IQueueAdapter
                     Math.Max(
                         7,
                         _requestTimeout.TotalSeconds)));
-        var response = await _client.ReceiveMessageAsync(new ReceiveMessageRequest
+        try
         {
-            QueueUrl = queueUrl,
-            MaxNumberOfMessages = 1,
-            VisibilityTimeout = visibilityTimeoutSeconds,
-            WaitTimeSeconds = 5,
-            MessageAttributeNames = ["All"],
-            MessageSystemAttributeNames =
-            [
-                MessageSystemAttributeName.ApproximateReceiveCount
-            ]
-        }, requestCts.Token);
+            var response = await _client.ReceiveMessageAsync(new ReceiveMessageRequest
+            {
+                QueueUrl = queueUrl,
+                MaxNumberOfMessages = 1,
+                VisibilityTimeout = visibilityTimeoutSeconds,
+                WaitTimeSeconds = 5,
+                MessageAttributeNames = ["All"],
+                MessageSystemAttributeNames =
+                [
+                    MessageSystemAttributeName.ApproximateReceiveCount,
+                    MessageSystemAttributeName.SentTimestamp
+                ]
+            }, requestCts.Token);
 
-        if (response.Messages.Count == 0) return null;
+            _availability.RecordSuccess();
+            if (response.Messages.Count == 0) return null;
 
-        var msg = response.Messages[0];
-        return new SqsMessage(msg);
+            var msg = new SqsMessage(response.Messages[0]);
+            ReliantTelemetry.RecordQueueReceive(queueUrl, msg);
+            return msg;
+        }
+        catch (Exception exception)
+        {
+            _availability.RecordFailure(exception);
+            throw;
+        }
     }
 
     public async Task RenewVisibilityAsync(
@@ -226,6 +250,7 @@ public class SqsQueueAdapter : IQueueAdapter
                     VisibilityTimeout = visibilityTimeoutSeconds
                 },
                 requestCts.Token);
+            _availability.RecordSuccess();
         }
         catch (OperationCanceledException)
             when (cancellationToken.IsCancellationRequested)
@@ -234,6 +259,7 @@ public class SqsQueueAdapter : IQueueAdapter
         }
         catch (Exception ex)
         {
+            _availability.RecordFailure(ex);
             throw ClassifyVisibilityRenewalFailure(ex);
         }
     }
@@ -244,32 +270,134 @@ public class SqsQueueAdapter : IQueueAdapter
             CreateRequestCancellationTokenSource(
                 cancellationToken,
                 _requestTimeout);
-        await _client.DeleteMessageAsync(new DeleteMessageRequest
+        try
         {
-            QueueUrl = queueUrl,
-            ReceiptHandle = receiptHandle
-        }, requestCts.Token);
+            await _client.DeleteMessageAsync(new DeleteMessageRequest
+            {
+                QueueUrl = queueUrl,
+                ReceiptHandle = receiptHandle
+            }, requestCts.Token);
+            _availability.RecordSuccess();
+            ReliantTelemetry.RecordQueueDelete(queueUrl, "success");
+        }
+        catch (Exception exception)
+        {
+            _availability.RecordFailure(exception);
+            ReliantTelemetry.RecordQueueDelete(queueUrl, "failure");
+            throw;
+        }
     }
 
     public async Task SendAsync(string queueUrl, string messageBody, string messageId, string messageType, CancellationToken cancellationToken = default)
+        => await SendAsync(
+            queueUrl,
+            messageBody,
+            messageId,
+            messageType,
+            new QueueMessageTelemetryContext(
+                null,
+                null,
+                null,
+                null,
+                null),
+            cancellationToken);
+
+    public async Task SendAsync(
+        string queueUrl,
+        string messageBody,
+        string messageId,
+        string messageType,
+        QueueMessageTelemetryContext telemetryContext,
+        CancellationToken cancellationToken = default)
     {
         var attributes = new Dictionary<string, MessageAttributeValue>
         {
             ["MessageId"] = new MessageAttributeValue { StringValue = messageId, DataType = "String" },
             ["MessageType"] = new MessageAttributeValue { StringValue = messageType, DataType = "String" }
         };
+        AddAttribute(attributes, "traceparent", telemetryContext.TraceParent);
+        AddAttribute(attributes, "tracestate", telemetryContext.TraceState);
+        AddAttribute(
+            attributes,
+            "CorrelationId",
+            telemetryContext.CorrelationId);
+        AddAttribute(
+            attributes,
+            "CausationId",
+            telemetryContext.CausationId);
+        AddAttribute(
+            attributes,
+            "DeploymentVersion",
+            telemetryContext.DeploymentVersion);
 
         using var requestCts =
             CreateRequestCancellationTokenSource(
                 cancellationToken,
                 _publishTimeout);
-        await _client.SendMessageAsync(new SendMessageRequest
+        try
         {
-            QueueUrl = queueUrl,
-            MessageBody = messageBody,
-            MessageAttributes = attributes
-        }, requestCts.Token);
+            await _client.SendMessageAsync(new SendMessageRequest
+            {
+                QueueUrl = queueUrl,
+                MessageBody = messageBody,
+                MessageAttributes = attributes
+            }, requestCts.Token);
+            _availability.RecordSuccess();
+        }
+        catch (Exception exception)
+        {
+            _availability.RecordFailure(exception);
+            throw;
+        }
     }
+
+    public async Task<QueueMetricsSnapshot?> GetMetricsAsync(
+        string queueUrl,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var requestCts =
+                CreateRequestCancellationTokenSource(
+                    cancellationToken,
+                    _requestTimeout);
+            var response = await _client.GetQueueAttributesAsync(
+                queueUrl,
+                [
+                    QueueAttributeName.ApproximateNumberOfMessages,
+                    QueueAttributeName.ApproximateNumberOfMessagesNotVisible,
+                    QueueAttributeName.ApproximateNumberOfMessagesDelayed
+                ],
+                requestCts.Token);
+            _availability.RecordSuccess();
+            return new QueueMetricsSnapshot(
+                ParseLong(response.ApproximateNumberOfMessages),
+                ParseLong(response.ApproximateNumberOfMessagesNotVisible),
+                ParseLong(response.ApproximateNumberOfMessagesDelayed));
+        }
+        catch (Exception exception)
+        {
+            _availability.RecordFailure(exception);
+            throw;
+        }
+    }
+
+    private static void AddAttribute(
+        IDictionary<string, MessageAttributeValue> attributes,
+        string name,
+        string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            attributes[name] = new MessageAttributeValue
+            {
+                StringValue = value,
+                DataType = "String"
+            };
+        }
+    }
+
+    private static long ParseLong(int value) => value;
 
     private static CancellationTokenSource
         CreateRequestCancellationTokenSource(
@@ -389,4 +517,27 @@ internal sealed class SqsMessage(Message msg) : IQueueMessage
             ? parsed
             : 0;
     public string ReceiptHandle => msg.ReceiptHandle;
+    public string PhysicalMessageId => msg.MessageId;
+    public string? CorrelationId => Attribute("CorrelationId");
+    public string? CausationId => Attribute("CausationId");
+    public string? TraceParent => Attribute("traceparent");
+    public string? TraceState => Attribute("tracestate");
+    public string? DeploymentVersion => Attribute("DeploymentVersion");
+    public DateTimeOffset? SentAt =>
+        msg.Attributes.TryGetValue(
+            MessageSystemAttributeName.SentTimestamp,
+            out var timestamp) &&
+        long.TryParse(
+            timestamp,
+            NumberStyles.Integer,
+            CultureInfo.InvariantCulture,
+            out var milliseconds)
+            ? DateTimeOffset.FromUnixTimeMilliseconds(milliseconds)
+            : null;
+
+    private string? Attribute(string name)
+        => msg.MessageAttributes.TryGetValue(name, out var attribute) &&
+            !string.IsNullOrWhiteSpace(attribute.StringValue)
+            ? attribute.StringValue
+            : null;
 }

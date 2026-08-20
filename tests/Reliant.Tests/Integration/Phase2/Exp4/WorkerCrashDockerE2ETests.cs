@@ -24,7 +24,7 @@ namespace Reliant.Tests.Integration.Phase2.Exp4;
 public sealed class WorkerCrashDockerE2ETests(ITestOutputHelper output)
 {
     private const string WorkerRuntimeImage =
-        "mcr.microsoft.com/dotnet/runtime:10.0";
+        "mcr.microsoft.com/dotnet/aspnet:10.0";
 
     private sealed record CommandResult(
         int ExitCode,

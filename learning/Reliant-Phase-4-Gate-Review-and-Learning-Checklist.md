@@ -1,5 +1,16 @@
 # Reliant Phase 4 Observability Gate Review & Learning Checklist
 
+> v3.2 final 对齐说明（2026-08-20）：Phase 4 的权威范围是
+
+
+
+> `reliant-phase-plan-v3.2-final.md` 第 9 节，即 Operability 和端到端
+> Observability。本文件早期草案把 SLI/SLO/Error Budget 和 k6 放在了
+> Phase 4；final 路线已把它们移动到 Phase 5，因此下文 Exp14/Exp15 仅作
+> Phase 5 预习，不属于本阶段 Gate。Phase 4 已完成的实现与验收证据见
+> `docs/evidence/phase-4.md`，架构决策见
+> `docs/adr/ADR-0023-telemetry-and-health.md`。
+
 > 状态：PLANNED
 > 进入基线：`079afcb`（Phase 2/3/3.1 Engineering Gate 已通过）
 > 信号契约：[`phase-3/observability-contract.md`](phase-3/observability-contract.md)
@@ -7,6 +18,7 @@
 
 Phase 4 不重新设计 Phase 2/3 的可靠性状态机。它把已经验证过的 Outbox、
 Queue、Worker、Provider、Reconciliation、Callback、Retry、DLQ、Lease 和
+
 Retention 行为变成可查询的 Metric、Trace、Log、Dashboard、Alert 和 SLO。
 
 ---

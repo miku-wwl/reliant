@@ -3,6 +3,8 @@ using Reliant.Application.Abstractions;
 using Reliant.Application.Dto;
 using Reliant.Domain.Entities;
 using Reliant.Domain.Enums;
+using Reliant.Application.Observability;
+using System.Diagnostics;
 using System.Text.Json;
 
 namespace Reliant.Worker.Scheduling;
@@ -81,6 +83,10 @@ public class RetrySchedulerService : IRetryScheduler
                     // scheduled so the worker owns RetryPending -> Processing. Sync the
                     // in-memory entity so tracked reads are consistent with the DB.
                     contribution.NextRetryAt = null;
+                    var correlationId =
+                        Activity.Current?.GetBaggageItem(
+                            "reliant.correlation_id") ??
+                        contribution.Id.ToString();
                     var retryMessage = new OutboxMessage
                     {
                         Id = Guid.NewGuid(),
@@ -91,8 +97,11 @@ public class RetrySchedulerService : IRetryScheduler
                             ContributionId: contribution.Id,
                             OrganizationId: contribution.OrganizationId,
                             Trigger: "Retry",
-                            CorrelationId: Guid.NewGuid().ToString())),
-                        CorrelationId = Guid.NewGuid().ToString(),
+                            CorrelationId: correlationId)),
+                        CorrelationId = correlationId,
+                        CausationId = contribution.Id.ToString(),
+                        TraceParent = Activity.Current?.Id,
+                        TraceState = Activity.Current?.TraceStateString,
                         OccurredAt = now,
                         Status = OutboxStatus.Pending,
                         Version = 0
@@ -101,6 +110,9 @@ public class RetrySchedulerService : IRetryScheduler
                     await _jobRunRepo.AddAsync(
                         JobRun.ForContributionProcessing(retryMessage),
                         ct);
+
+                    ReliantTelemetry.RecordRetryScheduled(
+                        contribution.LastErrorCategory);
 
                     _logger.LogInformation("Contribution {ContributionId} scheduled for retry (retry #{RetryCount})", contribution.Id, contribution.RetryCount);
                 }
@@ -169,11 +181,16 @@ public class RetrySchedulerService : IRetryScheduler
                 retryCount = contribution.RetryCount
             }),
             CorrelationId = Guid.NewGuid().ToString(),
+            CausationId = contribution.Id.ToString(),
+            TraceParent = Activity.Current?.Id,
+            TraceState = Activity.Current?.TraceStateString,
             OccurredAt = _timeProvider.GetUtcNow().UtcDateTime,
             Status = OutboxStatus.Pending,
             Version = 0
         }, ct);
 
         _logger.LogWarning("Contribution {ContributionId} moved to DLQ after max retries", contribution.Id);
+        ReliantTelemetry.RecordRetryExhausted(
+            contribution.LastErrorCategory);
     }
 }

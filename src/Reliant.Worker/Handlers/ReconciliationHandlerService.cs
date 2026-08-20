@@ -5,7 +5,9 @@ using Microsoft.Extensions.Logging;
 using MediatR;
 using Reliant.Application.Abstractions;
 using Reliant.Application.Contributions.Commands;
+using Reliant.Application.Observability;
 using Reliant.Infrastructure.Persistence;
+using System.Diagnostics;
 
 namespace Reliant.Worker.Handlers;
 
@@ -34,6 +36,16 @@ public class ReconciliationHandlerService(
 
                 foreach (var contributionId in pendingIds)
                 {
+                    var started = Stopwatch.GetTimestamp();
+                    var telemetryResult = "failure";
+                    ReliantTelemetry.ChangeWorkerInflight(
+                        "reconciliation",
+                        1);
+                    using var activity = ReliantTelemetry.StartActivity(
+                        "reconciliation process");
+                    activity?.SetTag(
+                        "reliant.contribution_id",
+                        contributionId);
                     try
                     {
                         logger.LogInformation("Reconciling contribution {ContributionId}", contributionId);
@@ -41,16 +53,33 @@ public class ReconciliationHandlerService(
 
                         if (result.Resolved)
                         {
+                            telemetryResult = "success";
+                            activity?.SetStatus(
+                                ActivityStatusCode.Ok);
                             logger.LogInformation("Reconciliation resolved for {ContributionId}: {Resolution}", contributionId, result.Resolution);
                         }
                         else
                         {
+                            telemetryResult = "deferred";
                             logger.LogWarning("Reconciliation pending for {ContributionId}: {Resolution}", contributionId, result.Resolution);
                         }
                     }
                     catch (Exception ex)
                     {
+                        activity?.SetStatus(
+                            ActivityStatusCode.Error,
+                            ex.GetType().Name);
                         logger.LogError(ex, "Reconciliation error for {ContributionId}", contributionId);
+                    }
+                    finally
+                    {
+                        ReliantTelemetry.ChangeWorkerInflight(
+                            "reconciliation",
+                            -1);
+                        ReliantTelemetry.RecordWorkerRun(
+                            "reconciliation",
+                            telemetryResult,
+                            Stopwatch.GetElapsedTime(started));
                     }
                 }
             }

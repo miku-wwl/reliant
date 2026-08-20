@@ -136,6 +136,8 @@ public class ReliantDbContext(DbContextOptions<ReliantDbContext> options) : DbCo
             e.Property(x => x.Payload).IsRequired();
             e.Property(x => x.CorrelationId).HasMaxLength(128).IsRequired();
             e.Property(x => x.CausationId).HasMaxLength(128);
+            e.Property(x => x.TraceParent).HasMaxLength(128);
+            e.Property(x => x.TraceState).HasMaxLength(512);
             e.Property(x => x.Status).HasConversion<int>();
             e.Property(x => x.Version).IsConcurrencyToken();
             e.HasIndex(x => new { x.Status, x.OccurredAt });

@@ -3,8 +3,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Reliant.Application.Abstractions;
+using Reliant.Application.Observability;
 using Reliant.Domain.Enums;
+using Reliant.Infrastructure.Observability;
 using Reliant.Infrastructure.Persistence;
+using System.Diagnostics;
 
 namespace Reliant.Worker.Handlers;
 
@@ -51,6 +54,31 @@ public class OutboxPublisherService(
                 foreach (var message in pendingMessages)
                 {
                     TenantFilterAccessor.SetOrganizationId(message.OrganizationId);
+                    var started = Stopwatch.GetTimestamp();
+                    var result = "failure";
+                    ReliantTelemetry.ChangeWorkerInflight(
+                        "outbox",
+                        1);
+                    using var activity = ReliantTelemetry.StartActivity(
+                        "outbox publish",
+                        ActivityKind.Producer,
+                        message.TraceParent,
+                        message.TraceState);
+                    activity?.SetTag("reliant.outbox_message_id", message.Id);
+                    activity?.SetTag("messaging.message.type", message.MessageType);
+                    activity?.SetTag("reliant.correlation_id", message.CorrelationId);
+                    activity?.SetTag("reliant.causation_id", message.CausationId);
+                    activity?.AddBaggage(
+                        "reliant.correlation_id",
+                        message.CorrelationId);
+                    using var logScope = logger.BeginScope(
+                        new Dictionary<string, object?>
+                        {
+                            ["CorrelationId"] = message.CorrelationId,
+                            ["CausationId"] = message.CausationId,
+                            ["MessageId"] = message.Id,
+                            ["MessageType"] = message.MessageType
+                        });
                     try
                     {
                         var queueName = message.MessageType switch
@@ -59,9 +87,25 @@ public class OutboxPublisherService(
                             _ => _defaultProcessingQueue
                         };
 
-                        await queuePublisher.PublishAsync(queueName, message.MessageType, message.Payload, message.Id.ToString(), stoppingToken);
+                        var deployment = scope.ServiceProvider
+                            .GetService<DeploymentInfo>();
+                        await queuePublisher.PublishAsync(
+                            queueName,
+                            message.MessageType,
+                            message.Payload,
+                            message.Id.ToString(),
+                            new QueueMessageTelemetryContext(
+                                message.CorrelationId,
+                                message.CausationId,
+                                Activity.Current?.Id ?? message.TraceParent,
+                                Activity.Current?.TraceStateString ??
+                                    message.TraceState,
+                                deployment?.Version),
+                            stoppingToken);
                         await outboxRepo.MarkAsSentAsync(message.Id, stoppingToken);
                         _brokerFailureStreak = 0;
+                        result = "success";
+                        activity?.SetStatus(ActivityStatusCode.Ok);
                         logger.LogInformation("Outbox message {MessageId} sent to {Queue}", message.Id, queueName);
                     }
                     catch (OperationCanceledException)
@@ -71,6 +115,9 @@ public class OutboxPublisherService(
                     }
                     catch (QueuePublishException ex)
                     {
+                        activity?.SetStatus(
+                            ActivityStatusCode.Error,
+                            ex.ErrorCategory.ToString());
                         var failureCount =
                             await outboxRepo.RecordSendFailureAsync(
                                 message.Id,
@@ -117,6 +164,9 @@ public class OutboxPublisherService(
                     }
                     catch (Exception ex)
                     {
+                        activity?.SetStatus(
+                            ActivityStatusCode.Error,
+                            ex.GetType().Name);
                         // Publishing may already have succeeded if this is a
                         // database state-update failure. Leave the message Pending;
                         // Inbox deduplication makes a later redelivery safe.
@@ -129,6 +179,13 @@ public class OutboxPublisherService(
                     }
                     finally
                     {
+                        ReliantTelemetry.ChangeWorkerInflight(
+                            "outbox",
+                            -1);
+                        ReliantTelemetry.RecordWorkerRun(
+                            "outbox",
+                            result,
+                            Stopwatch.GetElapsedTime(started));
                         TenantFilterAccessor.Clear();
                     }
                 }

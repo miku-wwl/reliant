@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using System.Diagnostics;
 using System.Text.Json;
 
 namespace Reliant.Api.Middleware;
@@ -14,7 +15,11 @@ public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Exception
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Unhandled exception. TraceId: {TraceId}", context.TraceIdentifier);
+            logger.LogError(
+                ex,
+                "Unhandled exception. TraceId: {TraceId}",
+                Activity.Current?.TraceId.ToString() ??
+                    context.TraceIdentifier);
             await WriteProblemDetails(context, ex);
         }
     }
@@ -37,7 +42,9 @@ public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Exception
             Detail = detail,
             Instance = context.Request.Path
         };
-        problem.Extensions["trace-id"] = context.TraceIdentifier;
+        problem.Extensions["trace-id"] =
+            Activity.Current?.TraceId.ToString() ??
+            context.TraceIdentifier;
 
         context.Response.StatusCode = status;
         context.Response.ContentType = "application/problem+json";

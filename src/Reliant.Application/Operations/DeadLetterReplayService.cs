@@ -1,5 +1,7 @@
 using System.Text.Json;
+using System.Diagnostics;
 using Reliant.Application.Abstractions;
+using Reliant.Application.Observability;
 using Reliant.Domain.Entities;
 using Reliant.Domain.Enums;
 
@@ -42,6 +44,9 @@ public sealed class DeadLetterReplayService(
             cancellationToken);
         if (record is null || record.OrganizationId != organizationId)
         {
+            ReliantTelemetry.RecordDeadLetterReplay(
+                "Unknown",
+                "not_found");
             return new DeadLetterReplayResult(
                 DeadLetterReplayOutcome.NotFound);
         }
@@ -49,6 +54,9 @@ public sealed class DeadLetterReplayService(
         if (record.Status != DeadLetterStatus.Pending ||
             record.ReplayCount >= 3)
         {
+            ReliantTelemetry.RecordDeadLetterReplay(
+                record.MessageType,
+                "not_pending");
             return new DeadLetterReplayResult(
                 DeadLetterReplayOutcome.NotPending,
                 ParseReplayMessageId(record.ReplayMessageId));
@@ -88,6 +96,8 @@ public sealed class DeadLetterReplayService(
                         ? record.OriginalMessageId
                         : record.CorrelationId,
                     CausationId = record.OriginalMessageId,
+                    TraceParent = Activity.Current?.Id,
+                    TraceState = Activity.Current?.TraceStateString,
                     OccurredAt = replayedAt,
                     Status = OutboxStatus.Pending,
                     Version = 0
@@ -129,6 +139,9 @@ public sealed class DeadLetterReplayService(
 
             await unitOfWork.SaveChangesAsync(cancellationToken);
             await unitOfWork.CommitAsync(cancellationToken);
+            ReliantTelemetry.RecordDeadLetterReplay(
+                record.MessageType,
+                "success");
             return new DeadLetterReplayResult(
                 DeadLetterReplayOutcome.Replayed,
                 replayMessageId);
@@ -136,6 +149,9 @@ public sealed class DeadLetterReplayService(
         catch
         {
             await unitOfWork.RollbackAsync(CancellationToken.None);
+            ReliantTelemetry.RecordDeadLetterReplay(
+                record.MessageType,
+                "failure");
             throw;
         }
     }

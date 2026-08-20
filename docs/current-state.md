@@ -1,7 +1,19 @@
 # Reliant - Current State
 
-> 最后更新：Phase 2/3/3.1 Completion Audit（2026-08-11）—
-> Local + GitHub CI Verified
+> 最后更新：Phase 4 Completion Audit（2026-08-20）—
+> Phase 4 Local E1/E2 Verified；Phase 3.1 GitHub CI Baseline 保留
+
+## Phase 4 状态
+
+```text
+Phase 4 — Completed locally
+
+OpenTelemetry -> Collector -> Prometheus / Tempo / Loki -> Grafana
+API + PostgreSQL + Outbox + SQS + Worker + Provider + Notification 可区分
+Telemetry failure is fail-open; health/readiness/version and diagnostics CLI verified
+
+Evidence pack: docs/evidence/phase-4.md
+```
 
 ## Phase 3.1 状态
 
@@ -13,7 +25,7 @@ Outbox -> SQS -> Worker -> Provider -> Reconciliation -> Callback proven
 end-to-end over PostgreSQL (Testcontainers) + LocalStack SQS + a real worker host.
 
 Evidence pack: docs/evidence/phase-3.1.md
-Phase 4 plan: learning/Reliant-Phase-4-Gate-Review-and-Learning-Checklist.md
+Phase 4 evidence: docs/evidence/phase-4.md
 ```
 
 补全实现基线 `817436b` 已通过 GitHub Actions
@@ -79,8 +91,12 @@ Phase 3 Exp1–Exp15: 25 executable tests / 15 reports
 | Provider Outage Backlog / Circuit Recovery | Implemented | Verified | learning/phase-3/exp14-provider-backlog-and-recovery.md |
 | Operational History Retention / Capacity Guardrails | Implemented | Verified | learning/phase-3/exp15-operational-history-retention.md |
 | Optimistic Concurrency | Implemented | Verified | Integration Test: OptimisticConcurrency_ShouldPreventLostUpdate |
-| OpenTelemetry | Not Started | Not Started | - |
-| Metrics / Logs / Dashboard | Not Started | Not Started | - |
+| OpenTelemetry | Implemented | Verified E1/E2 | docs/evidence/phase-4.md |
+| Trace Context across Outbox/SQS | Implemented | Verified E2 | QueueTracePropagationE2ETests |
+| Structured Logs / Redaction / Cardinality | Implemented | Verified E1 | TelemetryContractTests + ADR-0023 |
+| Metrics / Grafana Dashboard / Alerts | Implemented | Verified E1 | ops/observability + docs/evidence/phase-4.md |
+| Health / Readiness / Deployment Version | Implemented | Verified E1 | ApiOperationalEndpointTests + manual Worker checks |
+| Telemetry Fail-open | Implemented | Verified E2 | TelemetryFailOpenE2ETests |
 | SLI/SLO/Error Budget | Not Started | Not Started | - |
 | k6 Release Gate | Not Started | Not Started | - |
 | Azure E3 部署 | Not Started | Not Started | - |
@@ -92,7 +108,7 @@ Phase 3 Exp1–Exp15: 25 executable tests / 15 reports
 | Vulnerable Dependency Gate | Implemented | Verified | scripts/verify.ps1 |
 | Architecture Tests | Implemented | Verified | 5 Architecture tests |
 | Terraform 基线 | Implemented | Verified | Phase 0 Stage D |
-| reliantctl CLI | Partial | Verified for inspect/list/replay | Controlled Replay E1 + CLI help |
+| reliantctl CLI | Implemented for current operations | Verified E1 | diagnostics/inspect/list/replay + CLI help |
 
 ## 规则
 
@@ -102,14 +118,15 @@ Phase 3 Exp1–Exp15: 25 executable tests / 15 reports
 
 ## 测试统计
 
-- Unit Tests: 65
+- Unit Tests: 68
 - Architecture Tests: 5
-- PostgreSQL Integration Tests: 85
-- LocalStack Integration Tests: 35
+- PostgreSQL Integration Tests: 86
+- LocalStack Integration Tests: 37
 - HTTP API Integration Tests: 10
-- WorkerHost End-to-End Tests: 23
-- Integration Tests Total: 93
-- Total Tests: 163
+- WorkerHost End-to-End Tests: 24
+- Integration Tests Total: 96
+- Phase 4 Tests: 6
+- Total Tests: 169
 
 Dependency filters overlap（例如 WorkerHost E2E 同时计入 PostgreSQL 和
-LocalStack），不能把 85、35、10、23 相加当作 Integration Total。
+LocalStack），不能把 86、37、10、24 相加当作 Integration Total。

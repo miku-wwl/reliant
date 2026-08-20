@@ -1,8 +1,10 @@
 using MediatR;
 using Reliant.Application.Abstractions;
 using Reliant.Application.Messaging;
+using Reliant.Application.Observability;
 using Reliant.Domain.Entities;
 using Reliant.Domain.Enums;
+using System.Diagnostics;
 using System.Text.Json;
 
 namespace Reliant.Application.Contributions.Commands;
@@ -35,6 +37,11 @@ public class ReconcileContributionHandler(
 
     public async Task<ReconciliationResult> Handle(ReconcileContributionCommand request, CancellationToken ct)
     {
+        using var activity = ReliantTelemetry.StartActivity(
+            "reconciliation evaluate");
+        activity?.SetTag(
+            "reliant.contribution_id",
+            request.ContributionId);
         // The worker collects pending contribution IDs across all tenants
         // (IgnoreQueryFilters), so the handler must load by ID without the
         // ambient tenant filter and operate on the entity's own OrganizationId.
@@ -89,11 +96,16 @@ public class ReconcileContributionHandler(
                     contributionId = contribution.Id
                 }),
                 CorrelationId = Guid.NewGuid().ToString(),
+                CausationId = request.ContributionId.ToString(),
+                TraceParent = Activity.Current?.Id,
+                TraceState = Activity.Current?.TraceStateString,
                 OccurredAt = timeProvider.GetUtcNow().UtcDateTime,
                 Status = OutboxStatus.Pending,
                 Version = 0
             }, ct);
             await unitOfWork.SaveChangesAsync(ct);
+            ReliantTelemetry.RecordReconciliationResolution(
+                "ManualRequired");
             // ManualRequired means the difference is NOT resolved - an operator must
             // act. Resolved must be false so consumers do not treat this as converged.
             return new ReconciliationResult(false, "Max reconciliation count exceeded, ManualRequired");
@@ -143,6 +155,8 @@ public class ReconcileContributionHandler(
                     ResolvedAt = null
                 }, ct);
                 await unitOfWork.SaveChangesAsync(ct);
+                ReliantTelemetry.RecordReconciliationResolution(
+                    "ManualRequired");
                 return new ReconciliationResult(false, "No local evidence, ManualRequired");
             }
         }
@@ -165,6 +179,8 @@ public class ReconcileContributionHandler(
                 CreatedAt = now
             }, ct);
             await unitOfWork.SaveChangesAsync(ct);
+            ReliantTelemetry.RecordReconciliationResolution(
+                "WaitNextCycle");
             return new ReconciliationResult(false, $"Provider unavailable: {providerError?.Message}");
         }
 
@@ -270,6 +286,9 @@ public class ReconcileContributionHandler(
         {
             return new ReconciliationResult(true, "Concurrent reconciliation already applied");
         }
+
+        ReliantTelemetry.RecordReconciliationResolution(
+            record.Resolution);
 
         return new ReconciliationResult(
             providerResult.Status is ProviderStatus.Succeeded or ProviderStatus.Failed or ProviderStatus.NotFound,

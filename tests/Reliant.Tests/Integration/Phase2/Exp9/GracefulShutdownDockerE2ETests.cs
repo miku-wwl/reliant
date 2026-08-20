@@ -28,7 +28,7 @@ public sealed class GracefulShutdownDockerE2ETests(
     ITestOutputHelper output)
 {
     private const string WorkerRuntimeImage =
-        "mcr.microsoft.com/dotnet/runtime:10.0";
+        "mcr.microsoft.com/dotnet/aspnet:10.0";
 
     private sealed record CommandResult(
         int ExitCode,

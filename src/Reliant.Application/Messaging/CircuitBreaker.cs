@@ -1,4 +1,5 @@
 using Reliant.Domain.Enums;
+using Reliant.Application.Observability;
 
 namespace Reliant.Application.Messaging;
 
@@ -21,7 +22,11 @@ public class CircuitBreaker
             {
                 if (_state == CircuitBreakerState.Open && _timeProvider.GetUtcNow() - _openedAt >= _openDuration)
                 {
+                    var previous = _state;
                     _state = CircuitBreakerState.HalfOpen;
+                    ReliantTelemetry.RecordCircuitTransition(
+                        previous,
+                        _state);
                 }
                 return _state;
             }
@@ -56,8 +61,12 @@ public class CircuitBreaker
                     if (now - _openedAt >= _openDuration)
                     {
                         // This caller becomes the single half-open probe.
+                        var previous = _state;
                         _state = CircuitBreakerState.HalfOpen;
                         _probeTaken = true;
+                        ReliantTelemetry.RecordCircuitTransition(
+                            previous,
+                            _state);
                         return true;
                     }
                     return false;
@@ -77,9 +86,17 @@ public class CircuitBreaker
     {
         lock (_lock)
         {
+            var previous = _state;
+            if (previous == CircuitBreakerState.HalfOpen)
+            {
+                ReliantTelemetry.RecordCircuitHalfOpenProbe("success");
+            }
             _failureCount = 0;
             _state = CircuitBreakerState.Closed;
             _probeTaken = false;
+            ReliantTelemetry.RecordCircuitTransition(
+                previous,
+                _state);
         }
     }
 
@@ -95,9 +112,14 @@ public class CircuitBreaker
             if (_state == CircuitBreakerState.HalfOpen)
             {
                 // The single probe failed - reopen the circuit.
+                var previous = _state;
                 _state = CircuitBreakerState.Open;
                 _openedAt = _timeProvider.GetUtcNow();
                 _probeTaken = false;
+                ReliantTelemetry.RecordCircuitHalfOpenProbe("failure");
+                ReliantTelemetry.RecordCircuitTransition(
+                    previous,
+                    _state);
                 return;
             }
 
@@ -110,8 +132,12 @@ public class CircuitBreaker
 
             if (_failureCount >= _failureThreshold)
             {
+                var previous = _state;
                 _state = CircuitBreakerState.Open;
                 _openedAt = _timeProvider.GetUtcNow();
+                ReliantTelemetry.RecordCircuitTransition(
+                    previous,
+                    _state);
             }
         }
     }

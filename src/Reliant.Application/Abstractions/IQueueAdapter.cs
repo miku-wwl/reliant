@@ -39,7 +39,26 @@ public interface IQueueMessage
     string Payload { get; }
     int ApproximateReceiveCount { get; }
     string ReceiptHandle { get; }
+    string PhysicalMessageId => MessageId;
+    string? CorrelationId => null;
+    string? CausationId => null;
+    string? TraceParent => null;
+    string? TraceState => null;
+    string? DeploymentVersion => null;
+    DateTimeOffset? SentAt => null;
 }
+
+public sealed record QueueMessageTelemetryContext(
+    string? CorrelationId,
+    string? CausationId,
+    string? TraceParent,
+    string? TraceState,
+    string? DeploymentVersion);
+
+public sealed record QueueMetricsSnapshot(
+    long VisibleMessages,
+    long InFlightMessages,
+    long DelayedMessages);
 
 public interface IQueueAdapter
 {
@@ -48,9 +67,42 @@ public interface IQueueAdapter
     Task RenewVisibilityAsync(string queueUrl, string receiptHandle, int visibilityTimeoutSeconds, CancellationToken cancellationToken = default);
     Task DeleteAsync(string queueUrl, string receiptHandle, CancellationToken cancellationToken = default);
     Task SendAsync(string queueUrl, string messageBody, string messageId, string messageType, CancellationToken cancellationToken = default);
+
+    Task SendAsync(
+        string queueUrl,
+        string messageBody,
+        string messageId,
+        string messageType,
+        QueueMessageTelemetryContext telemetryContext,
+        CancellationToken cancellationToken = default)
+        => SendAsync(
+            queueUrl,
+            messageBody,
+            messageId,
+            messageType,
+            cancellationToken);
+
+    Task<QueueMetricsSnapshot?> GetMetricsAsync(
+        string queueUrl,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<QueueMetricsSnapshot?>(null);
 }
 
 public interface IQueueMessagePublisher
 {
     Task PublishAsync(string queueName, string messageType, string payload, string messageId, CancellationToken cancellationToken = default);
+
+    Task PublishAsync(
+        string queueName,
+        string messageType,
+        string payload,
+        string messageId,
+        QueueMessageTelemetryContext telemetryContext,
+        CancellationToken cancellationToken = default)
+        => PublishAsync(
+            queueName,
+            messageType,
+            payload,
+            messageId,
+            cancellationToken);
 }

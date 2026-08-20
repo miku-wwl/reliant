@@ -1,6 +1,7 @@
 using MediatR;
 using Reliant.Application.Abstractions;
 using Reliant.Application.Messaging;
+using Reliant.Application.Observability;
 using Reliant.Domain.Entities;
 using Reliant.Domain.Enums;
 using System.Text.Json;
@@ -178,6 +179,8 @@ public class SubmitToProviderHandler(
             await SaveChangesAsync(
                 request.ExecutionFence,
                 ct);
+            ReliantTelemetry.RecordProviderUnknown(
+                result.ErrorCategory);
             return new ProviderSubmissionResult(AttemptStatus.Unknown, null, result.ErrorCategory, result.ErrorMessage, ProviderSubmissionDisposition.Unknown);
         }
         catch (InjectedWorkerCrashException)
@@ -206,6 +209,8 @@ public class SubmitToProviderHandler(
             await SaveChangesAsync(
                 request.ExecutionFence,
                 CancellationToken.None);
+            ReliantTelemetry.RecordProviderUnknown(
+                ErrorCategory.UnknownOutcome);
             throw;
         }
         catch (Exception ex)
@@ -219,6 +224,8 @@ public class SubmitToProviderHandler(
             await SaveChangesAsync(
                 request.ExecutionFence,
                 ct);
+            ReliantTelemetry.RecordProviderUnknown(
+                ErrorCategory.Timeout);
             return new ProviderSubmissionResult(AttemptStatus.Unknown, null, ErrorCategory.Timeout, ex.Message, ProviderSubmissionDisposition.Unknown);
         }
     }

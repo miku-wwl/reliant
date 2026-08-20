@@ -1,7 +1,9 @@
 using MediatR;
 using Reliant.Application.Abstractions;
+using Reliant.Application.Observability;
 using Reliant.Domain.Entities;
 using Reliant.Domain.Enums;
+using System.Diagnostics;
 using System.Text.Json;
 
 namespace Reliant.Application.Contributions.Commands;
@@ -83,6 +85,8 @@ public class HandleProviderCallbackHandler(
             // Concurrent duplicate orphan callback -> already recorded, treat as done.
             await unitOfWork.TrySaveChangesAsync(ct);
 
+            ReliantTelemetry.RecordCallbackOrphan();
+
             return new CallbackHandleResult(200, "Orphan callback recorded");
         }
 
@@ -95,6 +99,8 @@ public class HandleProviderCallbackHandler(
             // Concurrent duplicate callback -> already handled.
             await unitOfWork.TrySaveChangesAsync(ct);
 
+            ReliantTelemetry.RecordCallbackTerminalConflict();
+
             return new CallbackHandleResult(200, "Conflict: local terminal state, ManualRequired");
         }
 
@@ -105,6 +111,8 @@ public class HandleProviderCallbackHandler(
 
             // Concurrent duplicate callback -> already handled.
             await unitOfWork.TrySaveChangesAsync(ct);
+
+            ReliantTelemetry.RecordCallbackTerminalConflict();
 
             return new CallbackHandleResult(200, "Conflict: local terminal state, ManualRequired");
         }
@@ -118,6 +126,7 @@ public class HandleProviderCallbackHandler(
                 // new state transition or business effect.
                 await WriteInboxAsync(payload, contribution.OrganizationId, ct);
                 await unitOfWork.TrySaveChangesAsync(ct);
+                ReliantTelemetry.RecordCallbackDuplicate();
                 return new CallbackHandleResult(200, "Already succeeded");
             }
 
@@ -145,6 +154,7 @@ public class HandleProviderCallbackHandler(
                 // Terminal confirmation of an already-failed contribution.
                 await WriteInboxAsync(payload, contribution.OrganizationId, ct);
                 await unitOfWork.TrySaveChangesAsync(ct);
+                ReliantTelemetry.RecordCallbackDuplicate();
                 return new CallbackHandleResult(200, "Already failed");
             }
 
@@ -178,6 +188,7 @@ public class HandleProviderCallbackHandler(
         var saved = await unitOfWork.TrySaveChangesAsync(ct);
         if (!saved)
         {
+            ReliantTelemetry.RecordCallbackDuplicate();
             return new CallbackHandleResult(200, "Already processed");
         }
 
@@ -210,6 +221,9 @@ public class HandleProviderCallbackHandler(
                 providerState
             }),
             CorrelationId = Guid.NewGuid().ToString(),
+            CausationId = contribution.Id.ToString(),
+            TraceParent = Activity.Current?.Id,
+            TraceState = Activity.Current?.TraceStateString,
             OccurredAt = DateTime.UtcNow,
             Status = OutboxStatus.Pending,
             Version = 0

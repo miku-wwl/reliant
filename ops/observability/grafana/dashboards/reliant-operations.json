@@ -1,0 +1,184 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Phase 4 component dashboard: impact, start time, failing boundary, deployment version, backlog and recovery. SLO/error-budget views intentionally belong to Phase 5.",
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Current API traffic. A sudden fall may be user impact or missing telemetry; compare Collector health.",
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "expr": "sum(rate(http_server_request_duration_seconds_count{service_name=\"Reliant.Api\"}[5m]))", "legendFormat": "requests/s", "refId": "A" }],
+      "title": "User impact · API request rate",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Server errors at the public API boundary.",
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 0.01 }] }, "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "options": { "colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "expr": "sum(rate(http_server_request_duration_seconds_count{service_name=\"Reliant.Api\",http_response_status_code=~\"5..\"}[5m]))", "legendFormat": "5xx/s", "refId": "A" }],
+      "title": "User impact · API 5xx",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Oldest unresolved provider outcome. This is a correctness/freshness signal, not merely infrastructure health.",
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 300 }, { "color": "red", "value": 900 }] }, "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "id": 3,
+      "options": { "colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "expr": "max(reconciliation_oldest_age)", "legendFormat": "oldest", "refId": "A" }],
+      "title": "Correctness · reconciliation age",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "If zero, telemetry can be missing while business remains healthy because export is fail-open.",
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "id": 4,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "expr": "up{job=\"otel-collector\"}", "legendFormat": "collector", "refId": "A" }],
+      "title": "Telemetry pipeline",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Backlog by logical queue role. Compare slope with worker run rate before increasing replicas.",
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 5 },
+      "id": 5,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "max by (queue) (queue_depth)", "legendFormat": "{{queue}}", "refId": "A" }, { "expr": "max(outbox_pending_count)", "legendFormat": "outbox", "refId": "B" }],
+      "title": "Where · Queue and Outbox backlog",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Worker active concurrency and completed outcomes by handler.",
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 5 },
+      "id": 6,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "sum by (handler) (worker_inflight)", "legendFormat": "inflight {{handler}}", "refId": "A" }, { "expr": "sum by (handler, result) (rate(worker_run_total[5m]))", "legendFormat": "{{handler}} {{result}}/s", "refId": "B" }],
+      "title": "Where · Worker throughput and concurrency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Provider calls, classified errors and unknown local outcomes.",
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 5 },
+      "id": 7,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "sum by (operation, result) (rate(provider_request_total[5m]))", "legendFormat": "{{operation}} {{result}}", "refId": "A" }, { "expr": "sum by (error_category) (rate(provider_error_total[5m]))", "legendFormat": "error {{error_category}}", "refId": "B" }, { "expr": "sum(rate(provider_unknown_total[5m]))", "legendFormat": "unknown", "refId": "C" }],
+      "title": "Where · Provider boundary",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Durable correctness queues and resolution decisions.",
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 13 },
+      "id": 8,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "max(reconciliation_pending_count)", "legendFormat": "reconciliation pending", "refId": "A" }, { "expr": "max(retry_pending_count)", "legendFormat": "retry pending", "refId": "B" }, { "expr": "max(deadletter_pending_count)", "legendFormat": "deadletter pending", "refId": "C" }],
+      "title": "Correctness · Pending work",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Lease and SQS visibility failures explain duplicate delivery and stale ownership risk.",
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 13 },
+      "id": 9,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "sum by (reason) (increase(lease_heartbeat_failure_total[5m]))", "legendFormat": "lease {{reason}}", "refId": "A" }, { "expr": "sum by (reason) (increase(visibility_renewal_failure_total[5m]))", "legendFormat": "visibility {{reason}}", "refId": "B" }, { "expr": "sum by (queue) (increase(queue_redelivery_total[5m]))", "legendFormat": "redelivery {{queue}}", "refId": "C" }],
+      "title": "Where · Lease, visibility and redelivery",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Current circuit state and transitions. State is one-hot by provider/state.",
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 13 },
+      "id": 10,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "max by (provider, state) (circuit_state)", "legendFormat": "{{provider}} {{state}}", "refId": "A" }, { "expr": "sum by (from, to) (increase(circuit_transition_total[15m]))", "legendFormat": "{{from}} → {{to}}", "refId": "B" }],
+      "title": "Provider circuit",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Npgsql pool usage and database operation latency. Use the linked traces to inspect the exact failing database operation.",
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 21 },
+      "id": 14,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "sum by (state) (db_client_connection_count{service_name=~\"Reliant.*\"})", "legendFormat": "connections {{state}}", "refId": "A" }, { "expr": "histogram_quantile(0.95, sum by (le, db_operation_name) (rate(db_client_operation_duration_seconds_bucket{service_name=~\"Reliant.*\"}[5m])))", "legendFormat": "p95 {{db_operation_name}}", "refId": "B" }],
+      "title": "Where · PostgreSQL pool and operation latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Resource attributes make a deployment/version change visible beside failure onset and recovery.",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 29 },
+      "id": 11,
+      "options": { "cellHeight": "sm", "showHeader": true },
+      "targets": [{ "expr": "count by (service_name, service_version, deployment_environment_name, service_commit_id) (dotnet_gc_collections_total)", "format": "table", "instant": true, "refId": "A" }],
+      "title": "What changed · Deployment inventory",
+      "transformations": [{ "id": "labelsToFields", "options": {} }],
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "description": "Recent traces across API, PostgreSQL, Outbox, SQS, Worker and Provider. Redelivery appears as a new consumer span linked to the original context.",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 29 },
+      "id": 12,
+      "options": {},
+      "targets": [{ "query": "{ resource.service.name =~ `Reliant.*` }", "queryType": "traceql", "refId": "A", "limit": 20 }],
+      "title": "Diagnosis · Recent distributed traces",
+      "type": "traces"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "loki" },
+      "description": "Structured logs. Open a TraceID derived field to move from a log to the exact trace.",
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 29 },
+      "id": 13,
+      "options": { "dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": true, "showCommonLabels": false, "showLabels": false, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true },
+      "targets": [{ "expr": "{service_name=~\"Reliant.*\"}", "refId": "A" }],
+      "title": "Diagnosis · Correlated logs",
+      "type": "logs"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 42,
+  "tags": ["reliant", "phase-4", "operations"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Reliant · Phase 4 Operations",
+  "uid": "reliant-phase4-operations",
+  "version": 1
+}

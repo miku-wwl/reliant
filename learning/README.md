@@ -14,7 +14,8 @@
 5. [Phase 3 Gate 与实验](Reliant-Phase-3-Gate-Review-and-Learning-Checklist.md)
    - 按顺序复习 `learning/phase-3/exp1` 到 `exp15`
 6. [Phase 4 Observability Checklist](Reliant-Phase-4-Gate-Review-and-Learning-Checklist.md)
-   - 目前是学习和实验计划，不代表 Phase 4 已经实现。
+   - 工程施工已完成并通过本地 E1/E2 Gate；学习打勾仍需 Owner 自己讲解和复现。
+   - 聚合证据：[`../docs/evidence/phase-4.md`](../docs/evidence/phase-4.md)。
 
 ## 每个阶段的学习循环
 

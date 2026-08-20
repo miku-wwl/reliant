@@ -10,6 +10,8 @@ public class OutboxMessage
     public string Payload { get; set; } = string.Empty;
     public string CorrelationId { get; set; } = string.Empty;
     public string? CausationId { get; set; }
+    public string? TraceParent { get; set; }
+    public string? TraceState { get; set; }
     public DateTime OccurredAt { get; set; } = DateTime.UtcNow;
     public DateTime? SentAt { get; set; }
     public int SendCount { get; set; }

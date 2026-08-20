@@ -7,10 +7,12 @@ using Reliant.Application.Abstractions;
 using Reliant.Application.Contributions.Commands;
 using Reliant.Application.Dto;
 using Reliant.Application.Messaging;
+using Reliant.Application.Observability;
 using Reliant.Domain.Entities;
 using Reliant.Domain.Enums;
 using Reliant.Infrastructure.Persistence;
 using MediatR;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -94,6 +96,9 @@ public class ProcessingHandlerService(
 
             var processingTask = Task.Run(async () =>
             {
+                var telemetryStartedAt = Stopwatch.GetTimestamp();
+                var telemetryActive = false;
+                var telemetryResult = "failure";
                 try
                 {
                     using var scope = serviceProvider.CreateScope();
@@ -103,6 +108,26 @@ public class ProcessingHandlerService(
                     var message = await queueAdapter.ReceiveAsync(queueUrl, VisibilityTimeoutSeconds, stoppingToken);
 
                     if (message is null) return;
+
+                    telemetryActive = true;
+                    ReliantTelemetry.ChangeWorkerInflight(
+                        "processing",
+                        1);
+                    using var consumerActivity =
+                        ReliantTelemetry.StartQueueConsumer(
+                            message,
+                            ReliantTelemetry.NormalizeQueue(QueueName),
+                            "processing");
+                    using var logScope = logger.BeginScope(
+                        new Dictionary<string, object?>
+                        {
+                            ["CorrelationId"] = message.CorrelationId,
+                            ["CausationId"] = message.CausationId,
+                            ["MessageId"] = message.MessageId,
+                            ["SqsPhysicalMessageId"] =
+                                message.PhysicalMessageId,
+                            ["MessageType"] = message.MessageType
+                        });
 
                     logger.LogInformation(
                         "Processing message {MessageId}; approximate receive count {ApproximateReceiveCount}",
@@ -125,6 +150,12 @@ public class ProcessingHandlerService(
                     var msg = validation.Message!;
                     var contributionId = msg.ContributionId;
                     var organizationId = msg.OrganizationId;
+                    consumerActivity?.SetTag(
+                        "reliant.contribution_id",
+                        contributionId);
+                    consumerActivity?.SetTag(
+                        "reliant.tenant_safe_id",
+                        ReliantTelemetry.TenantSafeId(organizationId));
 
                     using var innerScope = serviceProvider.CreateScope();
                     var inboxRepo = innerScope.ServiceProvider.GetRequiredService<IInboxRepository>();
@@ -176,6 +207,8 @@ public class ProcessingHandlerService(
                         await innerUnitOfWork.SaveChangesAsync(
                             stoppingToken);
                         await queueAdapter.DeleteAsync(queueUrl, message.ReceiptHandle, stoppingToken);
+                        telemetryResult = "success";
+                        consumerActivity?.SetStatus(ActivityStatusCode.Ok);
                         logger.LogInformation("Message {MessageId} already processed (inbox dedup)", message.MessageId);
                         return;
                     }
@@ -214,6 +247,7 @@ public class ProcessingHandlerService(
                                 jobRunId,
                                 activeLease?.WorkerId ?? "unknown",
                                 activeLease?.ExpiresAt);
+                            telemetryResult = "deferred";
                             return;
                         }
 
@@ -427,6 +461,9 @@ public class ProcessingHandlerService(
                                 executionFence,
                                 stoppingToken);
                             await queueAdapter.DeleteAsync(queueUrl, message.ReceiptHandle, stoppingToken);
+                            telemetryResult = "success";
+                            consumerActivity?.SetStatus(
+                                ActivityStatusCode.Ok);
                             return;
                         }
 
@@ -503,6 +540,7 @@ public class ProcessingHandlerService(
                                 leaseRepo,
                                 executionFence,
                                 stoppingToken);
+                            telemetryResult = "deferred";
                             return;
                         }
 
@@ -689,10 +727,25 @@ public class ProcessingHandlerService(
                         faultInjector.Inject(WorkerFaultPoint.BeforeMessageAck, contributionId.ToString());
                         await queueAdapter.DeleteAsync(queueUrl, message.ReceiptHandle, stoppingToken);
 
+                        telemetryResult = submitResult.Status ==
+                            AttemptStatus.Unknown
+                            ? "unknown"
+                            : submitResult.Status == AttemptStatus.Failed
+                                ? "failure"
+                                : "success";
+                        consumerActivity?.SetStatus(
+                            telemetryResult == "failure"
+                                ? ActivityStatusCode.Error
+                                : ActivityStatusCode.Ok);
+
                         logger.LogInformation("Message {MessageId} processed, attempt status: {Status}", message.MessageId, submitResult.Status);
                     }
                     catch (StaleJobOwnerException ex)
                     {
+                        telemetryResult = "deferred";
+                        consumerActivity?.SetStatus(
+                            ActivityStatusCode.Error,
+                            "stale_owner");
                         logger.LogWarning(
                             ex,
                             "Fencing rejected stale worker {WorkerId} for job {JobRunId}; lease {LeaseId}; token {FencingToken}; message left unacknowledged",
@@ -704,6 +757,7 @@ public class ProcessingHandlerService(
                     catch (OperationCanceledException)
                         when (stoppingToken.IsCancellationRequested)
                     {
+                        telemetryResult = "deferred";
                         const string shutdownReason =
                             "Worker graceful shutdown interrupted processing";
                         logger.LogInformation(
@@ -721,6 +775,7 @@ public class ProcessingHandlerService(
                     }
                     catch (DbUpdateConcurrencyException ex)
                     {
+                        telemetryResult = "deferred";
                         // Another concurrent delivery committed the same
                         // Contribution state first. Leave this physical message
                         // unacknowledged; after visibility expiry it will observe
@@ -740,6 +795,10 @@ public class ProcessingHandlerService(
                     }
                     catch (InvalidStateTransitionException ex)
                     {
+                        telemetryResult = "failure";
+                        consumerActivity?.SetStatus(
+                            ActivityStatusCode.Error,
+                            "invalid_state_transition");
                         logger.LogWarning(ex, "Invalid state transition for message {MessageId}", message.MessageId);
                         await deadLetterRepo.AddAsync(new DeadLetterRecord
                         {
@@ -800,6 +859,17 @@ public class ProcessingHandlerService(
                 }
                 finally
                 {
+                    if (telemetryActive)
+                    {
+                        ReliantTelemetry.ChangeWorkerInflight(
+                            "processing",
+                            -1);
+                        ReliantTelemetry.RecordWorkerRun(
+                            "processing",
+                            telemetryResult,
+                            Stopwatch.GetElapsedTime(
+                                telemetryStartedAt));
+                    }
                     semaphore.Release();
                 }
             }, CancellationToken.None);
@@ -1199,6 +1269,8 @@ public class ProcessingHandlerService(
                         cancellationToken);
                 if (!leaseRenewed)
                 {
+                    ReliantTelemetry.RecordLeaseHeartbeatFailure(
+                        "stale_owner");
                     logger.LogWarning(
                         "Heartbeat rejected for message {MessageId}; job {JobRunId}; lease {LeaseId}; token {FencingToken}. SQS visibility was not renewed and processing will rely on redelivery",
                         messageId,
@@ -1228,6 +1300,9 @@ public class ProcessingHandlerService(
             }
             catch (QueueVisibilityRenewalException ex)
             {
+                ReliantTelemetry.RecordVisibilityRenewalFailure(
+                    QueueName,
+                    ex.FailureKind.ToString());
                 logger.LogWarning(
                     ex,
                     "SQS visibility heartbeat failed for message {MessageId}; job {JobRunId}; lease {LeaseId}; token {FencingToken}; failure kind {FailureKind}; transient {IsTransient}. Heartbeat stopped so the message can be redelivered after its last successful visibility timeout",
@@ -1241,6 +1316,8 @@ public class ProcessingHandlerService(
             }
             catch (Exception ex)
             {
+                ReliantTelemetry.RecordLeaseHeartbeatFailure(
+                    ex.GetType().Name);
                 logger.LogError(
                     ex,
                     "Heartbeat failed for message {MessageId}; job {JobRunId}; lease {LeaseId}; token {FencingToken}. Heartbeat stopped so Lease and SQS visibility can expire",

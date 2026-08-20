@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Configuration;
 using Reliant.Application.Abstractions;
+using Reliant.Application.Observability;
 using Reliant.Domain.Enums;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 
 namespace Reliant.Infrastructure.Provider;
 
@@ -42,9 +44,19 @@ public class SandboxProvider : IProvider, ISandboxProviderControl
         _mode = mode;
     }
 
-    public async Task<ProviderResult> SubmitAsync(
+    public Task<ProviderResult> SubmitAsync(
         ProviderRequest request,
         CancellationToken ct = default)
+        => ObserveAsync(
+            "submit",
+            () => SubmitCoreAsync(request, ct),
+            result => (
+                ProviderResultName(result.Status),
+                result.ErrorCategory));
+
+    private async Task<ProviderResult> SubmitCoreAsync(
+        ProviderRequest request,
+        CancellationToken ct)
     {
         if (_submitDelayMs > 0)
         {
@@ -158,6 +170,7 @@ public class SandboxProvider : IProvider, ISandboxProviderControl
         if (existing.Amount != request.Amount || existing.Currency != request.Currency ||
             existing.ExternalReference != request.Reference)
         {
+            ReliantTelemetry.RecordProviderIdempotencyConflict();
             return new ProviderResult(
                 ProviderStatus.Failed, existing.ProviderReference,
                 ErrorCategory.PermanentBusinessRejection,
@@ -174,7 +187,19 @@ public class SandboxProvider : IProvider, ISandboxProviderControl
             "Idempotent replay", null);
     }
 
-    public Task<ProviderStatusResult> QueryStatusByReferenceAsync(string providerReference, CancellationToken ct = default)
+    public Task<ProviderStatusResult> QueryStatusByReferenceAsync(
+        string providerReference,
+        CancellationToken ct = default)
+        => ObserveAsync(
+            "query_by_reference",
+            () => QueryStatusByReferenceCoreAsync(
+                providerReference,
+                ct),
+            result => (ProviderResultName(result.Status), null));
+
+    private Task<ProviderStatusResult> QueryStatusByReferenceCoreAsync(
+        string providerReference,
+        CancellationToken ct)
     {
         if (_mode == "QueryUnavailable")
         {
@@ -194,7 +219,20 @@ public class SandboxProvider : IProvider, ISandboxProviderControl
         return Task.FromResult(new ProviderStatusResult(ProviderStatus.NotFound, null, "Reference not found"));
     }
 
-    public Task<ProviderStatusResult> QueryStatusByIdempotencyKeyAsync(string idempotencyKey, CancellationToken ct = default)
+    public Task<ProviderStatusResult> QueryStatusByIdempotencyKeyAsync(
+        string idempotencyKey,
+        CancellationToken ct = default)
+        => ObserveAsync(
+            "query_by_idempotency_key",
+            () => QueryStatusByIdempotencyKeyCoreAsync(
+                idempotencyKey,
+                ct),
+            result => (ProviderResultName(result.Status), null));
+
+    private Task<ProviderStatusResult>
+        QueryStatusByIdempotencyKeyCoreAsync(
+            string idempotencyKey,
+            CancellationToken ct)
     {
         if (_mode == "QueryUnavailable")
         {
@@ -214,7 +252,19 @@ public class SandboxProvider : IProvider, ISandboxProviderControl
         return Task.FromResult(new ProviderStatusResult(ProviderStatus.NotFound, null, "Key not found"));
     }
 
-    public Task<ProviderResult> CancelAsync(string providerReference, CancellationToken ct = default)
+    public Task<ProviderResult> CancelAsync(
+        string providerReference,
+        CancellationToken ct = default)
+        => ObserveAsync(
+            "cancel",
+            () => CancelCoreAsync(providerReference, ct),
+            result => (
+                ProviderResultName(result.Status),
+                result.ErrorCategory));
+
+    private Task<ProviderResult> CancelCoreAsync(
+        string providerReference,
+        CancellationToken ct)
     {
         if (_byRef.TryGetValue(providerReference, out var op))
         {
@@ -225,10 +275,88 @@ public class SandboxProvider : IProvider, ISandboxProviderControl
         return Task.FromResult(new ProviderResult(ProviderStatus.NotFound, null, ErrorCategory.ValidationFailure, "Reference not found", null));
     }
 
-    public Task<ProviderHealthResult> CheckHealthAsync(CancellationToken ct = default)
+    public Task<ProviderHealthResult> CheckHealthAsync(
+        CancellationToken ct = default)
+        => ObserveAsync(
+            "health",
+            CheckHealthCoreAsync,
+            result => (
+                result.IsHealthy ? "success" : "failure",
+                null));
+
+    private Task<ProviderHealthResult> CheckHealthCoreAsync()
     {
         return Task.FromResult(new ProviderHealthResult(true, "Sandbox provider is healthy"));
     }
+
+    private static async Task<T> ObserveAsync<T>(
+        string operation,
+        Func<Task<T>> invoke,
+        Func<T, (string Result, ErrorCategory? ErrorCategory)>
+            classify)
+    {
+        using var activity = ReliantTelemetry.StartActivity(
+            $"provider {operation}",
+            ActivityKind.Client);
+        activity?.SetTag("server.address", "sandbox-provider");
+        activity?.SetTag("reliant.provider", "sandbox");
+        activity?.SetTag("reliant.provider.operation", operation);
+        var started = Stopwatch.GetTimestamp();
+        try
+        {
+            var value = await invoke();
+            var outcome = classify(value);
+            ReliantTelemetry.RecordProviderRequest(
+                operation,
+                outcome.Result,
+                Stopwatch.GetElapsedTime(started),
+                outcome.ErrorCategory);
+            activity?.SetTag(
+                "reliant.provider.result",
+                outcome.Result);
+            activity?.SetTag(
+                "reliant.error_category",
+                outcome.ErrorCategory?.ToString());
+            activity?.SetStatus(
+                outcome.Result == "failure"
+                    ? ActivityStatusCode.Error
+                    : ActivityStatusCode.Ok);
+            return value;
+        }
+        catch (Exception exception)
+        {
+            var category = exception is TimeoutException or
+                TaskCanceledException or OperationCanceledException
+                ? ErrorCategory.Timeout
+                : exception is IOException or HttpRequestException
+                    ? ErrorCategory.NetworkFailure
+                    : ErrorCategory.UnknownOutcome;
+            ReliantTelemetry.RecordProviderRequest(
+                operation,
+                category == ErrorCategory.Timeout
+                    ? "timeout"
+                    : "failure",
+                Stopwatch.GetElapsedTime(started),
+                category);
+            activity?.SetTag(
+                "reliant.error_category",
+                category.ToString());
+            activity?.SetStatus(
+                ActivityStatusCode.Error,
+                exception.GetType().Name);
+            throw;
+        }
+    }
+
+    private static string ProviderResultName(ProviderStatus status)
+        => status switch
+        {
+            ProviderStatus.Succeeded => "success",
+            ProviderStatus.Failed => "failure",
+            ProviderStatus.Pending => "unknown",
+            ProviderStatus.NotFound => "not_found",
+            _ => "other"
+        };
 
     public int OperationCount => _byKey.Count;
 

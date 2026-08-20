@@ -9,6 +9,7 @@ using Reliant.Application.Abstractions;
 using Reliant.Application.Messaging;
 using Reliant.Infrastructure;
 using Reliant.Infrastructure.Persistence;
+using Reliant.Infrastructure.Observability;
 using Reliant.Worker.Handlers;
 using Reliant.Worker.Scheduling;
 using System.Collections.Concurrent;
@@ -52,13 +53,13 @@ public sealed class WorkerHostFixture : IAsyncLifetime
 
     public IHost Host => _host ?? throw new InvalidOperationException("Worker host not started");
 
+    // Pausing makes the broker unreachable while preserving the container's
+    // host-port binding. A stop/start cycle can receive a new random host
+    // port in Testcontainers, which is not representative of a production
+    // broker endpoint and would leave the already-built worker host pointing
+    // at a stale test-only URL.
     public Task StopBrokerAsync(
         CancellationToken cancellationToken = default)
-        // Pausing makes the broker unreachable while preserving the container's
-        // host-port binding. A stop/start cycle can receive a new random host
-        // port in Testcontainers, which is not representative of a production
-        // broker endpoint and would leave the already-built worker host pointing
-        // at a stale test-only URL.
         => _localStack.PauseAsync(cancellationToken);
 
     public Task StartBrokerAsync(
@@ -186,6 +187,8 @@ public sealed class WorkerHostFixture : IAsyncLifetime
         if (configurationOverrides is not null)
             builder.Configuration.AddInMemoryCollection(
                 configurationOverrides);
+
+        builder.AddReliantObservability("Reliant.Worker.Test");
 
         builder.Services.AddReliantApplication();
         builder.Services.AddReliantInfrastructure(builder.Configuration);

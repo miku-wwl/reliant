@@ -8,6 +8,8 @@ using Reliant.Application.Abstractions;
 using Reliant.Application.Operations;
 using Reliant.Infrastructure;
 using Reliant.Infrastructure.Persistence;
+using Reliant.Domain.Enums;
+using System.Reflection;
 
 var rootCommand = new RootCommand(
     "reliantctl - Reliant operational CLI");
@@ -22,12 +24,96 @@ rootCommand.Options.Add(connectionStringOption);
 var diagnosticsCollect = new Command(
     "collect",
     "Collect diagnostic information");
-diagnosticsCollect.SetAction(_ =>
+diagnosticsCollect.SetAction(async (
+    parseResult,
+    cancellationToken) =>
 {
-    Console.WriteLine(
-        "Use scripts/verify.ps1 and the experiment evidence pack " +
-        "for diagnostics collection.");
-    return Task.CompletedTask;
+    try
+    {
+        await using var provider = BuildServiceProvider(
+            parseResult.GetValue(connectionStringOption));
+        await using var scope = provider.CreateAsyncScope();
+        var database = scope.ServiceProvider
+            .GetRequiredService<ReliantDbContext>();
+        if (!await database.Database.CanConnectAsync(cancellationToken))
+        {
+            Console.Error.WriteLine(
+                "PostgreSQL connection check returned false.");
+            return 3;
+        }
+
+        var now = DateTime.UtcNow;
+        var oldestPendingOutbox = await database.OutboxMessages
+            .IgnoreQueryFilters()
+            .Where(x => x.Status == OutboxStatus.Pending)
+            .Select(x => (DateTime?)x.OccurredAt)
+            .MinAsync(cancellationToken);
+        var oldestReconciliation = await database
+            .ReconciliationRecords
+            .IgnoreQueryFilters()
+            .Where(x => x.ResolvedAt == null)
+            .Select(x => (DateTime?)x.CreatedAt)
+            .MinAsync(cancellationToken);
+
+        WriteJson(new
+        {
+            generatedAt = now,
+            deployment = new
+            {
+                service = "Reliant.Cli",
+                version = Assembly.GetEntryAssembly()?
+                    .GetCustomAttribute<
+                        AssemblyInformationalVersionAttribute>()?
+                    .InformationalVersion ?? "unknown",
+                commit = Environment.GetEnvironmentVariable(
+                    "DEPLOYMENT_COMMIT") ?? "local"
+            },
+            database = new
+            {
+                reachable = true,
+                pendingOutbox = await database.OutboxMessages
+                    .IgnoreQueryFilters()
+                    .LongCountAsync(
+                        x => x.Status == OutboxStatus.Pending,
+                        cancellationToken),
+                runningJobs = await database.JobRuns
+                    .IgnoreQueryFilters()
+                    .LongCountAsync(
+                        x => x.Status == JobStatus.Running,
+                        cancellationToken),
+                unknownProviderAttempts = await database
+                    .ProcessingAttempts
+                    .IgnoreQueryFilters()
+                    .LongCountAsync(
+                        x => x.Status == AttemptStatus.Unknown,
+                        cancellationToken),
+                unresolvedReconciliations = await database
+                    .ReconciliationRecords
+                    .IgnoreQueryFilters()
+                    .LongCountAsync(
+                        x => x.ResolvedAt == null,
+                        cancellationToken),
+                pendingDeadLetters = await database.DeadLetterRecords
+                    .IgnoreQueryFilters()
+                    .LongCountAsync(
+                        x => x.Status == DeadLetterStatus.Pending,
+                        cancellationToken),
+                oldestPendingOutboxAgeSeconds = AgeSeconds(
+                    now,
+                    oldestPendingOutbox),
+                oldestReconciliationAgeSeconds = AgeSeconds(
+                    now,
+                    oldestReconciliation)
+            }
+        });
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        Console.Error.WriteLine(
+            $"Diagnostic collection failed: {exception.GetType().Name}: {exception.Message}");
+        return 3;
+    }
 });
 var diagnosticsCommand = new Command(
     "diagnostics",
@@ -281,3 +367,8 @@ static void WriteJson(object value)
             {
                 WriteIndented = true
             }));
+
+static double AgeSeconds(DateTime now, DateTime? timestamp)
+    => timestamp.HasValue
+        ? Math.Max(0, (now - timestamp.Value).TotalSeconds)
+        : 0;

@@ -1,0 +1,57 @@
+groups:
+  - name: reliant-phase4-component-alerts
+    rules:
+      - alert: ReliantTelemetryCollectorDown
+        expr: up{job="otel-collector"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          owner: platform
+        annotations:
+          summary: Reliant telemetry collector cannot be scraped
+          action: Check Collector health and exporter queue pressure; business traffic remains fail-open.
+          runbook_url: docs/runbooks/telemetry-pipeline.md
+
+      - alert: ReliantQueueBacklogHigh
+        expr: max by (queue) (queue_depth) > 100
+        for: 10m
+        labels:
+          severity: warning
+          owner: reliant-oncall
+        annotations:
+          summary: Reliant queue backlog is above its Phase 4 diagnostic threshold
+          action: Compare worker throughput, PostgreSQL, provider latency, and SQS health before scaling.
+          runbook_url: docs/runbooks/queue-backlog.md
+
+      - alert: ReliantProviderUnknownOutcomes
+        expr: sum(rate(provider_unknown_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          owner: reliant-oncall
+        annotations:
+          summary: Provider outcomes are becoming unknown
+          action: Inspect provider latency/errors and reconciliation convergence; do not blindly replay.
+          runbook_url: docs/runbooks/provider-unknown.md
+
+      - alert: ReliantReconciliationStale
+        expr: reconciliation_oldest_age > 900
+        for: 5m
+        labels:
+          severity: warning
+          owner: reliant-oncall
+        annotations:
+          summary: An unresolved reconciliation item is older than 15 minutes
+          action: Check provider query health and ManualRequired records.
+          runbook_url: docs/runbooks/provider-unknown.md
+
+      - alert: ReliantWorkerHeartbeatFailure
+        expr: increase(lease_heartbeat_failure_total[5m]) + increase(visibility_renewal_failure_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          owner: reliant-oncall
+        annotations:
+          summary: Worker lease or SQS visibility heartbeat failed
+          action: Correlate the worker trace with PostgreSQL lease ownership and SQS redelivery.
+          runbook_url: docs/runbooks/worker-heartbeat.md

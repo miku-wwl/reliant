@@ -2,10 +2,12 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Reliant.Application.Abstractions;
+using Reliant.Application.Observability;
 using Reliant.Domain.Entities;
 using Reliant.Domain.Enums;
 using Reliant.Infrastructure.Persistence;
 using System.Text.Json;
+using System.Diagnostics;
 
 namespace Reliant.Worker.Handlers;
 
@@ -29,6 +31,9 @@ public class NotificationHandlerService(
 
             _ = Task.Run(async () =>
             {
+                var telemetryStartedAt = Stopwatch.GetTimestamp();
+                var telemetryActive = false;
+                var telemetryResult = "failure";
                 try
                 {
                     using var scope = serviceProvider.CreateScope();
@@ -41,12 +46,34 @@ public class NotificationHandlerService(
 
                     if (message is null) return;
 
+                    telemetryActive = true;
+                    ReliantTelemetry.ChangeWorkerInflight(
+                        "notification",
+                        1);
+                    using var consumerActivity =
+                        ReliantTelemetry.StartQueueConsumer(
+                            message,
+                            "notification",
+                            "notification");
+                    using var logScope = logger.BeginScope(
+                        new Dictionary<string, object?>
+                        {
+                            ["CorrelationId"] = message.CorrelationId,
+                            ["CausationId"] = message.CausationId,
+                            ["MessageId"] = message.MessageId,
+                            ["SqsPhysicalMessageId"] =
+                                message.PhysicalMessageId,
+                            ["MessageType"] = message.MessageType
+                        });
+
                     logger.LogInformation("Notification message {MessageId}", message.MessageId);
 
                     var existing = await inboxRepo.GetByMessageIdAsync(message.MessageId, stoppingToken);
                     if (existing is { Status: InboxStatus.Processed })
                     {
                         await queueAdapter.DeleteAsync(queueUrl, message.ReceiptHandle, stoppingToken);
+                        telemetryResult = "success";
+                        consumerActivity?.SetStatus(ActivityStatusCode.Ok);
                         return;
                     }
 
@@ -58,6 +85,13 @@ public class NotificationHandlerService(
                         TenantFilterAccessor.SetOrganizationId(organizationId);
 
                         logger.LogInformation("Sending notification for message {MessageId}", message.MessageId);
+                        using var deliveryActivity =
+                            ReliantTelemetry.StartActivity(
+                                "notification deliver",
+                                ActivityKind.Client);
+                        deliveryActivity?.SetTag(
+                            "reliant.notification.channel",
+                            "sandbox_webhook");
 
                         var inboxMessage = new InboxMessage
                         {
@@ -73,6 +107,9 @@ public class NotificationHandlerService(
                         await inboxRepo.AddAsync(inboxMessage, stoppingToken);
                         await unitOfWork.SaveChangesAsync(stoppingToken);
                         await queueAdapter.DeleteAsync(queueUrl, message.ReceiptHandle, stoppingToken);
+                        telemetryResult = "success";
+                        deliveryActivity?.SetStatus(ActivityStatusCode.Ok);
+                        consumerActivity?.SetStatus(ActivityStatusCode.Ok);
                     }
                     catch (Exception ex)
                     {
@@ -90,6 +127,17 @@ public class NotificationHandlerService(
                 }
                 finally
                 {
+                    if (telemetryActive)
+                    {
+                        ReliantTelemetry.ChangeWorkerInflight(
+                            "notification",
+                            -1);
+                        ReliantTelemetry.RecordWorkerRun(
+                            "notification",
+                            telemetryResult,
+                            Stopwatch.GetElapsedTime(
+                                telemetryStartedAt));
+                    }
                     semaphore.Release();
                 }
             }, stoppingToken);

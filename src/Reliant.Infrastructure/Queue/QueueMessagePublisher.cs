@@ -1,25 +1,87 @@
 using Amazon.Runtime;
 using Reliant.Application.Abstractions;
+using Reliant.Application.Observability;
 using Reliant.Domain.Enums;
+using Reliant.Infrastructure.Observability;
+using System.Diagnostics;
 using System.Net;
 
 namespace Reliant.Infrastructure.Queue;
 
-public class QueueMessagePublisher(IQueueAdapter queueAdapter) : IQueueMessagePublisher
+public class QueueMessagePublisher(
+    IQueueAdapter queueAdapter,
+    DeploymentInfo? deploymentInfo = null) : IQueueMessagePublisher
 {
     public async Task PublishAsync(string queueName, string messageType, string payload, string messageId, CancellationToken cancellationToken = default)
+        => await PublishCoreAsync(
+            queueName,
+            messageType,
+            payload,
+            messageId,
+            null,
+            cancellationToken);
+
+    public async Task PublishAsync(
+        string queueName,
+        string messageType,
+        string payload,
+        string messageId,
+        QueueMessageTelemetryContext telemetryContext,
+        CancellationToken cancellationToken = default)
+        => await PublishCoreAsync(
+            queueName,
+            messageType,
+            payload,
+            messageId,
+            telemetryContext,
+            cancellationToken);
+
+    private async Task PublishCoreAsync(
+        string queueName,
+        string messageType,
+        string payload,
+        string messageId,
+        QueueMessageTelemetryContext? telemetryContext,
+        CancellationToken cancellationToken)
     {
+        using var activity = telemetryContext?.TraceParent is not null &&
+            Activity.Current is null
+            ? ReliantTelemetry.StartActivity(
+                $"{messageType} send",
+                ActivityKind.Producer,
+                telemetryContext.TraceParent,
+                telemetryContext.TraceState)
+            : ReliantTelemetry.StartQueueProducer(
+                ReliantTelemetry.NormalizeQueue(queueName),
+                messageType,
+                messageId);
+        activity?.SetTag("reliant.correlation_id", telemetryContext?.CorrelationId);
+        activity?.SetTag("reliant.causation_id", telemetryContext?.CausationId);
+
         try
         {
             var queueUrl = await queueAdapter.GetOrCreateQueueAsync(
                 queueName,
                 cancellationToken);
+            var propagatedContext = new QueueMessageTelemetryContext(
+                telemetryContext?.CorrelationId ??
+                    Activity.Current?.GetBaggageItem(
+                        "reliant.correlation_id"),
+                telemetryContext?.CausationId,
+                Activity.Current?.Id ?? telemetryContext?.TraceParent,
+                Activity.Current?.TraceStateString ??
+                    telemetryContext?.TraceState,
+                telemetryContext?.DeploymentVersion ??
+                    deploymentInfo?.Version);
             await queueAdapter.SendAsync(
                 queueUrl,
                 payload,
                 messageId,
                 messageType,
+                propagatedContext,
                 cancellationToken);
+            ReliantTelemetry.RecordQueuePublish(queueName, "success");
+            activity?.SetStatus(ActivityStatusCode.Ok);
         }
         catch (OperationCanceledException)
             when (cancellationToken.IsCancellationRequested)
@@ -29,6 +91,8 @@ public class QueueMessagePublisher(IQueueAdapter queueAdapter) : IQueueMessagePu
         catch (Exception ex)
         {
             var (category, isTransient) = Classify(ex);
+            ReliantTelemetry.RecordQueuePublish(queueName, "failure");
+            activity?.SetStatus(ActivityStatusCode.Error, category.ToString());
             throw new QueuePublishException(
                 category,
                 isTransient,
