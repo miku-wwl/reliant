@@ -18,7 +18,7 @@
   "panels": [
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Current API traffic. A sudden fall may be user impact or missing telemetry; compare Collector health.",
+      "description": "数据源：Prometheus。看 Reliant.Api 最近 5 分钟的 HTTP 请求速率，回答‘现在有没有用户请求、流量是否突然下降’。数值为 0 表示查询到了指标但当前没有请求；No data 表示没有匹配到请求指标，先检查 API 和 OTel Collector。若流量异常，继续看 API 5xx、Correlated logs 和 Recent distributed traces。",
       "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
       "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
       "id": 1,
@@ -29,7 +29,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Server errors at the public API boundary.",
+      "description": "数据源：Prometheus。看公共 API 边界的 5xx 错误速率。没有数据通常表示最近时间窗口内没有产生 5xx 请求，不等于 Grafana 故障；如果需要确认成功请求，结合 API request rate 一起看。出现数值后，再用 Correlated logs 和 Recent distributed traces 定位异常。",
       "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 0.01 }] }, "unit": "reqps" }, "overrides": [] },
       "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
       "id": 2,
@@ -40,7 +40,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Oldest unresolved provider outcome. This is a correctness/freshness signal, not merely infrastructure health.",
+      "description": "数据源：Prometheus。看最老的、尚未解决的 Provider 结果已经等待多久。这是支付结果正确性和新鲜度指标，不只是机器健康指标。No data 表示当前没有待对账结果；持续升高说明 UNKNOWN 或 Provider 响应丢失正在积累，应查对账记录、Worker 和 Provider boundary。",
       "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 300 }, { "color": "red", "value": 900 }] }, "unit": "s" }, "overrides": [] },
       "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
       "id": 3,
@@ -51,7 +51,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "If zero, telemetry can be missing while business remains healthy because export is fail-open.",
+      "description": "数据源：Prometheus。看 OTel Collector 是否被 Prometheus 抓取到：1 通常表示 Collector 存活，0 表示抓取失败。它只能证明 telemetry pipeline 的可观测性通道，不证明业务成功。No data 时先检查 Collector、Prometheus scrape 和 API/Worker 的 OTLP 配置。",
       "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } }, "overrides": [] },
       "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
       "id": 4,
@@ -62,7 +62,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Backlog by logical queue role. Compare slope with worker run rate before increasing replicas.",
+      "description": "数据源：Prometheus。看各逻辑队列和 Outbox 中尚未处理的数量：queue_depth 是消息队列积压，outbox_pending_count 是数据库 Outbox 待发布记录。曲线持续上升才是积压风险；当前值为 0 表示没有积压。扩容前要和 Worker throughput 对比，避免真正瓶颈在 PostgreSQL、Provider 或网络。",
       "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 5 },
       "id": 5,
@@ -73,7 +73,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Worker active concurrency and completed outcomes by handler.",
+      "description": "数据源：Prometheus。看 Worker 当前正在处理多少任务（inflight），以及各 handler 每秒完成多少成功或失败结果（run rate）。No data 表示最近没有产生 Worker 执行指标，通常是没有业务消息；若 Queue backlog 有数据但这里仍为空，就要检查 Worker 是否运行、是否成功消费消息。",
       "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 5 },
       "id": 6,
@@ -84,7 +84,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Provider calls, classified errors and unknown local outcomes.",
+      "description": "数据源：Prometheus。看 Provider 调用量、按类别归类的错误，以及调用结果未知（UNKNOWN）的数量。No data 表示最近没有发生 Provider 调用；出现 429、超时或 UNKNOWN 时，这里用于判断瓶颈是否在 Provider 边界，再结合 Trace 和日志查看具体请求。",
       "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 5 },
       "id": 7,
@@ -95,7 +95,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Durable correctness queues and resolution decisions.",
+      "description": "数据源：Prometheus。看需要业务后续处理的持久化工作：待对账、待重试、待进入 Dead Letter。这里关注的是数据库中的业务状态，不只是 SQS 数量。0 表示当前没有待处理工作；No data 表示对应指标没有产生，需确认 Worker 是否注册并发布了这些指标。",
       "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 13 },
       "id": 8,
@@ -106,7 +106,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Lease and SQS visibility failures explain duplicate delivery and stale ownership risk.",
+      "description": "数据源：Prometheus。看 Lease heartbeat 失败、SQS Visibility Timeout 续租失败，以及消息重投次数。它解释‘为什么同一消息可能被另一个 Worker 再次收到’和‘旧 Worker 为什么可能变成 Stale Owner’。No data 通常表示最近没有发生这些异常；如果消息重复处理，先看这里，再看 fencing/lease 日志。",
       "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 13 },
       "id": 9,
@@ -117,7 +117,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Current circuit state and transitions. State is one-hot by provider/state.",
+      "description": "数据源：Prometheus。看 Provider circuit breaker 的当前状态和状态切换。closed=1 表示允许调用，open=1 表示熔断，half-open 表示正在探测恢复。状态是 one-hot 的，同一 Provider 同一时刻通常只有一个状态为 1；曲线没有 transition 不代表没有 circuit_state。",
       "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 13 },
       "id": 10,
@@ -128,7 +128,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Npgsql pool usage and database operation latency. Use the linked traces to inspect the exact failing database operation.",
+      "description": "数据源：Prometheus。看 PostgreSQL/Npgsql 连接池状态，以及数据库操作 p95 延迟。连接数持续接近上限或 p95 上升，说明数据库连接池、锁、查询或数据库本身可能成为瓶颈。具体是哪条 SQL、哪个 Trace，要打开下方 Trace 或日志继续查。",
       "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 21 },
       "id": 14,
@@ -139,7 +139,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Resource attributes make a deployment/version change visible beside failure onset and recovery.",
+      "description": "数据源：Prometheus。看当前运行实例的 service name、service version、commit 和环境，用来回答‘故障是否和某次部署有关’。它不是业务请求量，而是部署身份清单；比较故障开始时间和版本变化时间。",
       "fieldConfig": { "defaults": {}, "overrides": [] },
       "gridPos": { "h": 6, "w": 8, "x": 0, "y": 29 },
       "id": 11,
@@ -151,7 +151,7 @@
     },
     {
       "datasource": { "type": "tempo", "uid": "tempo" },
-      "description": "Recent traces across API, PostgreSQL, Outbox, SQS, Worker and Provider. Redelivery appears as a new consumer span linked to the original context.",
+      "description": "数据源：Tempo。看最近的分布式调用链：API → PostgreSQL/Outbox → SQS → Worker → Provider。打开一条 Trace 后，先看 Span 的父子关系和耗时，再看错误 Span、TraceId、CorrelationId、CausationId。消息重投通常会产生新的 consumer Span，但仍应通过消息上下文关联原始业务。No data 时先扩大时间范围并确认 Tempo 收到了 Trace。",
       "fieldConfig": { "defaults": {}, "overrides": [] },
       "gridPos": { "h": 6, "w": 8, "x": 8, "y": 29 },
       "id": 12,
@@ -162,7 +162,7 @@
     },
     {
       "datasource": { "type": "loki", "uid": "loki" },
-      "description": "Structured logs. Open a TraceID derived field to move from a log to the exact trace.",
+      "description": "数据源：Loki。看 API 和 Worker 输出的结构化日志，并通过 TraceId 跳转到 Tempo 的具体 Trace。CorrelationId 用来串起同一业务流程，CausationId 用来表示当前消息由哪个上游事件产生。这里适合看异常堆栈、业务状态、ProviderReference 和重试原因；不要把日志本身当作业务最终状态，最终状态仍以 PostgreSQL 为准。",
       "gridPos": { "h": 6, "w": 8, "x": 16, "y": 29 },
       "id": 13,
       "options": { "dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": true, "showCommonLabels": false, "showLabels": false, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true },
@@ -180,5 +180,5 @@
   "timezone": "browser",
   "title": "Reliant · Phase 4 Operations",
   "uid": "reliant-phase4-operations",
-  "version": 1
+  "version": 4
 }
