@@ -1,0 +1,56 @@
+{
+  "uid": "dotnet-hello-observability",
+  "title": ".NET Hello Observability Demo",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Business operations by result",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "dotnet-demo-prometheus"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (operation, result) (rate(demo_business_operation_total[1m]))",
+          "legendFormat": "{{operation}} / {{result}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Business requests per second",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "dotnet-demo-prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(demo_business_operation_total[1m]))"
+        }
+      ]
+    }
+  ]
+}
