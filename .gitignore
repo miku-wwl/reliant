@@ -1,6 +1,7 @@
 # .NET
 bin/
 obj/
+target/
 *.user
 *.suo
 .vs/
