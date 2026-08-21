@@ -3,7 +3,8 @@
 这是一个独立的 Spring Boot 学习 Demo，用来理解：
 
 ```text
-业务代码埋点 → Prometheus 采集和保存 → Grafana 查询和展示
+业务代码埋点 → Prometheus 采集 Metrics → Grafana 查询和展示
+业务 Trace → OpenTelemetry OTLP → Collector / Tempo
 ```
 
 本 Demo 不使用 Docker、不使用 Kubernetes，也不包含数据库和消息队列。
@@ -43,6 +44,37 @@ http://localhost:8081/actuator/prometheus
 ```text
 demo_business_operation_total
 ```
+
+## OpenTelemetry Trace
+
+这个增量加入了 OpenTelemetry Trace，但没有在业务代码中直接写 Jaeger
+或 Tempo exporter：
+
+```text
+Spring Boot HTTP instrumentation
+        +
+Controller 的 hello.business span
+        ↓
+Micrometer Tracing → OpenTelemetry bridge
+        ↓ OTLP/HTTP
+OpenTelemetry Collector: http://localhost:4318/v1/traces
+        ↓
+Tempo / Jaeger 等 Trace backend
+```
+
+代码中的两类 Trace：
+
+- Spring Boot 自动生成 HTTP server span；
+- `HelloController` 手动生成 `hello.business` span。
+
+默认采样率是 `1.0`，方便本地学习。Collector 地址可以通过环境变量覆盖：
+
+```powershell
+$env:OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = "http://localhost:4318/v1/traces"
+```
+
+如果没有启动 Collector，业务接口仍然应该返回；只是 Trace 无法被后端保存。
+这体现了 telemetry fail-open 的原则。
 
 ## Prometheus
 
